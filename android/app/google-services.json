@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "457167475699",
+    "project_id": "katering-app-b6e3a",
+    "storage_bucket": "katering-app-b6e3a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:457167475699:android:98932ed4c0767e3736f886",
+        "android_client_info": {
+          "package_name": "com.example.katering_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD8ZvLHEKIkleWPRuvkMij3eV0GfIJtfmc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
