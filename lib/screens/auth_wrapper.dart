@@ -54,16 +54,27 @@ class RoleBasedRedirect extends StatelessWidget {
               body: Center(child: CircularProgressIndicator()));
         }
 
+        // --- INI PERBAIKANNYA ---
         if (!userDocSnapshot.hasData || !userDocSnapshot.data!.exists) {
-          // Tetap loading, menunggu 'users' doc selesai ditulis (mencegah race condition)
+          // Jika user login (Auth) tapi datanya (Firestore) tidak ada,
+          // ini adalah state 'stale' atau 'corrupt'. Paksa logout.
+          
+          // Kita gunakan WidgetsBinding untuk memanggil signOut setelah build selesai
+          // untuk menghindari error 'setState during build'.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            FirebaseAuth.instance.signOut();
+          });
+          
+          // Tampilkan loading selagi proses logout
           return const Scaffold(
               body: Center(child: CircularProgressIndicator()));
         }
+        // --- SELESAI PERBAIKAN ---
 
         final data = userDocSnapshot.data!.data() as Map<String, dynamic>;
 
         if (data['role'] == null) {
-          // Data user ada tapi 'role' belum ditulis
+          // Data user ada tapi 'role' belum ditulis (race condition)
           return const Scaffold(
               body: Center(child: CircularProgressIndicator()));
         }
@@ -83,12 +94,6 @@ class RoleBasedRedirect extends StatelessWidget {
             );
 
           case 'driver':
-            // Cek status pendaftaran mitra di koleksi 'drivers'
-            // return _CheckPartnerStatus(
-            //   uid: user.uid,
-            //   collection: 'drivers',
-            //   homePage: const HomePlaceholder(), // Nanti jadi DriverDashboard
-            // );
             return const HomePlaceholder(); // Placeholder dulu
 
           default:
@@ -126,12 +131,16 @@ class _CheckPartnerStatus extends StatelessWidget {
 
         // Jika dokumen mitra belum ada (error inkonsistensi data)
         if (!partnerDocSnapshot.hasData || !partnerDocSnapshot.data!.exists) {
+          // Ini juga state error. Logout paksa.
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            FirebaseAuth.instance.signOut();
+          });
           return Scaffold(
             body: Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Text("Error: Inkonsistensi Data (Mitra tidak ditemukan)."),
+                  const Text("Error: Data Mitra tidak ditemukan."),
                   ElevatedButton(
                     child: const Text('Logout'),
                     onPressed: () => FirebaseAuth.instance.signOut(),

@@ -71,7 +71,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
             'role': _selectedRole,
             'createdAt': Timestamp.now(),
           });
-          // AuthWrapper akan otomatis mengarahkan ke Home
+
+          // --- INI PERBAIKANNYA ---
+          // Reset navigasi kembali ke AuthWrapper ('/')
+          // Ini akan menghapus halaman Login & Register dari tumpukan
+          if (mounted) {
+            Navigator.pushNamedAndRemoveUntil(
+                context, '/', (route) => false);
+          }
+          // --- SELESAI PERBAIKAN ---
         }
       } else if (_selectedRole == 'restoran') {
         // Alur 2: Restoran (Lanjut ke Form)
