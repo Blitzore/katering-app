@@ -99,7 +99,6 @@ class MyApp extends StatelessWidget {
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
         '/home': (context) => const HomePlaceholder(),
-        '/pending_verification': (context) => const PendingVerificationScreen(),
       },
     );
   }

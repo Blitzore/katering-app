@@ -3,7 +3,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import '../onboarding/resto_form_screen.dart'; // Menggunakan path relatif
+import '../onboarding/resto_form_screen.dart';
+import '../onboarding/driver_form_screen.dart'; // <-- Ditambahkan
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({Key? key}) : super(key: key);
@@ -29,8 +30,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   /// Menangani logika pendaftaran berdasarkan role:
-  /// 1. Pelanggan: Langsung membuat akun Auth dan data Firestore.
-  /// 2. Mitra (Resto/Driver): Membawa data ke halaman form berikutnya.
   Future<void> _handleRegister() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -71,15 +70,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
             'role': _selectedRole,
             'createdAt': Timestamp.now(),
           });
-
-          // --- INI PERBAIKANNYA ---
-          // Reset navigasi kembali ke AuthWrapper ('/')
-          // Ini akan menghapus halaman Login & Register dari tumpukan
+          
           if (mounted) {
-            Navigator.pushNamedAndRemoveUntil(
-                context, '/', (route) => false);
+            Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
           }
-          // --- SELESAI PERBAIKAN ---
         }
       } else if (_selectedRole == 'restoran') {
         // Alur 2: Restoran (Lanjut ke Form)
@@ -95,10 +89,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
           );
         }
       } else if (_selectedRole == 'driver') {
-        // Alur 3: Driver (Nanti Dibuat)
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Alur driver belum tersedia')),
-        );
+        // Alur 3: Driver (Diaktifkan)
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DriverFormScreen(
+                email: email,
+                password: password,
+              ),
+            ),
+          );
+        }
       }
     } on FirebaseAuthException catch (e) {
       String message = 'Terjadi kesalahan.';

@@ -7,7 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:cloudinary_public/cloudinary_public.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import '../../models/menu_item.dart'; // Menggunakan path relatif
+import '../../models/menu_item.dart';
 
 /// Halaman stateful untuk form pendaftaran data restoran & menu awal.
 /// Menerima [email] dan [password] dari halaman register.
@@ -31,9 +31,8 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
   final _alamatTokoController = TextEditingController();
 
   final List<MenuItem> _menuItems = [];
-  bool _isLoading = false;
+  String? _loadingMessage;
 
-  /// Inisialisasi klien Cloudinary.
   final cloudinary =
       CloudinaryPublic('drdfrxobm', 'katering_app', cache: false);
 
@@ -44,7 +43,21 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
     super.dispose();
   }
 
-  /// Menampilkan dialog untuk menambah menu baru.
+  /// Helper untuk mengambil & mengompres gambar dari galeri.
+  Future<File?> _pickImage() async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 50, // Kompres kualitas
+      maxWidth: 1080, // Ubah ukuran lebar
+    );
+    if (pickedFile != null) {
+      return File(pickedFile.path);
+    }
+    return null;
+  }
+
+  /// Menampilkan dialog untuk menambah data menu baru.
   Future<void> _showAddMenuDialog() async {
     final _menuFormKey = GlobalKey<FormState>();
     final _namaMenuController = TextEditingController();
@@ -67,12 +80,10 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
                     children: [
                       GestureDetector(
                         onTap: () async {
-                          final picker = ImagePicker();
-                          final pickedFile = await picker.pickImage(
-                              source: ImageSource.gallery);
-                          if (pickedFile != null) {
+                          final file = await _pickImage();
+                          if (file != null) {
                             setDialogState(() {
-                              _menuImageFile = File(pickedFile.path);
+                              _menuImageFile = file;
                             });
                           }
                         },
@@ -153,12 +164,12 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
     );
   }
 
-  /// Menjalankan proses pendaftaran lengkap untuk mitra:
-  /// 1. Membuat akun di [FirebaseAuth]
-  /// 2. Menyimpan data role ke [FirebaseFirestore] (koleksi 'users')
-  /// 3. Menyimpan data restoran ke [FirebaseFirestore] (koleksi 'restaurants')
-  /// 4. Mengunggah semua foto menu ke [Cloudinary]
-  /// 5. Menyimpan data menu ke sub-koleksi 'menus'
+  /// Menjalankan proses pendaftaran lengkap dengan urutan:
+  /// 1. Upload foto menu ke Cloudinary
+  /// 2. Buat akun di Firebase Auth
+  /// 3. Simpan data role ke 'users'
+  /// 4. Simpan data toko ke 'restaurants'
+  /// 5. Simpan data menu ke subkoleksi 'menus'
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -170,11 +181,41 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
     }
 
     setState(() {
-      _isLoading = true;
+      _loadingMessage = "Mengunggah menu (1/${_menuItems.length})...";
     });
 
     try {
-      // 1. Buat Akun Auth
+      // 1. Upload Foto Menu
+      List<Map<String, dynamic>> menuDataToSave = [];
+      int counter = 1;
+
+      for (var item in _menuItems) {
+        setState(() {
+          _loadingMessage = "Mengunggah menu ($counter/${_menuItems.length})...";
+        });
+
+        String menuId = FirebaseFirestore.instance.collection('temp').doc().id;
+
+        CloudinaryResponse response = await cloudinary.uploadFile(
+          CloudinaryFile.fromFile(item.imageFile.path,
+              resourceType: CloudinaryResourceType.Image,
+              folder: 'foto_menu',
+              publicId: 'menu_${menuId}'),
+        );
+        
+        menuDataToSave.add({
+          'menuId': menuId,
+          'namaMenu': item.namaMenu,
+          'harga': item.harga,
+          'fotoUrl': response.secureUrl,
+          'isAvailable': true,
+        });
+        counter++;
+      }
+      
+      // 2. Buat Akun Firebase Auth
+      setState(() { _loadingMessage = "Membuat akun..."; });
+      
       UserCredential userCredential =
           await FirebaseAuth.instance.createUserWithEmailAndPassword(
         email: widget.email,
@@ -184,7 +225,8 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
       final user = userCredential.user;
       if (user == null) throw Exception("Gagal membuat akun");
 
-      // 2. Simpan Data Role ke 'users'
+      // 3. Simpan Data Role ke 'users'
+      setState(() { _loadingMessage = "Menyimpan data (1/3)..."; });
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
         'uid': user.uid,
         'email': user.email,
@@ -192,7 +234,8 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
         'createdAt': Timestamp.now(),
       });
 
-      // 3. Simpan data Restoran ke 'restaurants'
+      // 4. Simpan data Restoran ke 'restaurants'
+      setState(() { _loadingMessage = "Menyimpan data (2/3)..."; });
       await FirebaseFirestore.instance
           .collection('restaurants')
           .doc(user.uid)
@@ -204,89 +247,56 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
         'createdAt': Timestamp.now(),
       });
 
-      // 4. Loop dan Upload setiap menu
-      for (var item in _menuItems) {
-        String menuId = FirebaseFirestore.instance
+      // 5. Simpan semua data menu (Batch Write)
+      setState(() { _loadingMessage = "Menyimpan data (3/3)..."; });
+      final batch = FirebaseFirestore.instance.batch();
+      for (var menuData in menuDataToSave) {
+        final menuDocRef = FirebaseFirestore.instance
             .collection('restaurants')
             .doc(user.uid)
             .collection('menus')
-            .doc()
-            .id;
-
-        // Upload ke Cloudinary
-        CloudinaryResponse response = await cloudinary.uploadFile(
-          CloudinaryFile.fromFile(item.imageFile.path,
-              resourceType: CloudinaryResourceType.Image,
-              folder: 'foto_menu',
-              publicId: '${user.uid}_$menuId'),
-        );
-
-        final imageUrl = response.secureUrl;
-
-        // 5. Simpan data menu ke sub-koleksi 'menus'
-        await FirebaseFirestore.instance
-            .collection('restaurants')
-            .doc(user.uid)
-            .collection('menus')
-            .doc(menuId)
-            .set({
-          'menuId': menuId,
-          'namaMenu': item.namaMenu,
-          'harga': item.harga,
-          'fotoUrl': imageUrl,
-          'isAvailable': true,
-        });
+            .doc(menuData['menuId']);
+        batch.set(menuDocRef, menuData);
       }
+      await batch.commit();
 
-      // Reset navigasi kembali ke AuthWrapper
+      // Selesai. Reset navigasi kembali ke AuthWrapper (akar)
       if (mounted) {
         Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
       }
+
     } on FirebaseAuthException catch (e) {
-      // Tangani error jika email sudah ada
-      String message = 'Terjadi kesalahan.';
-      if (e.code == 'email-already-in-use') {
-        message =
-            'Email ini sudah terdaftar. Silakan kembali dan gunakan email lain.';
-      }
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Error Pendaftaran'),
-            content: Text(message),
-            actions: [
-              TextButton(
-                child: const Text('OK'),
-                onPressed: () => Navigator.of(ctx).pop(),
-              )
-            ],
-          ),
-        );
-      }
+      _showErrorDialog('Error Pendaftaran', e.code == 'email-already-in-use'
+          ? 'Email ini sudah terdaftar. Silakan kembali dan gunakan email lain.'
+          : 'Terjadi error: ${e.message}');
+          
     } catch (e) {
-      if (mounted) {
-        showDialog(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Terjadi Error'),
-            content: Text('Detail Error: ${e.toString()}'),
-            actions: [
-              TextButton(
-                child: const Text('OK'),
-                onPressed: () => Navigator.of(ctx).pop(),
-              )
-            ],
-          ),
-        );
-      }
+      _showErrorDialog('Terjadi Error', 'Detail Error: ${e.toString()}');
     }
 
     if (mounted) {
       setState(() {
-        _isLoading = false;
+        _loadingMessage = null;
       });
     }
+  }
+
+  /// Helper untuk menampilkan dialog error.
+  void _showErrorDialog(String title, String content) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(content),
+        actions: [
+          TextButton(
+            child: const Text('OK'),
+            onPressed: () => Navigator.of(ctx).pop(),
+          )
+        ],
+      ),
+    );
   }
 
   /// Menampilkan dialog konfirmasi sebelum kembali ke halaman register.
@@ -345,7 +355,6 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 10),
-                // Tampilkan email yang didaftarkan
                 Text(
                   "Mendaftar dengan email: ${widget.email}",
                   textAlign: TextAlign.center,
@@ -371,7 +380,6 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: 10),
-                // Tampilkan daftar menu yang sudah ditambahkan
                 Container(
                   height: _menuItems.isEmpty ? 0 : 150,
                   decoration: _menuItems.isEmpty
@@ -402,7 +410,6 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
                   ),
                 ),
                 const SizedBox(height: 10),
-                // Tombol untuk memunculkan dialog tambah menu
                 OutlinedButton.icon(
                   icon: const Icon(Icons.add),
                   label: const Text('Tambah Menu'),
@@ -413,11 +420,19 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
                       side: BorderSide(color: Theme.of(context).primaryColor)),
                 ),
                 const SizedBox(height: 30),
-                // Tombol Submit Utama
+                
+                // Tombol Submit dengan status loading
                 ElevatedButton(
-                  onPressed: _isLoading ? null : _submitForm,
-                  child: _isLoading
-                      ? const CircularProgressIndicator(color: Colors.white)
+                  onPressed: _loadingMessage != null ? null : _submitForm,
+                  child: _loadingMessage != null
+                      ? Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                            const SizedBox(width: 16),
+                            Flexible(child: Text(_loadingMessage!)),
+                          ],
+                        )
                       : const Text('Kirim Pendaftaran'),
                 ),
               ],
