@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({Key? key}) : super(key: key);
@@ -11,6 +12,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  bool _isLoading = false; 
 
   @override
   void dispose() {
@@ -19,12 +21,45 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _login() {
-    if (_formKey.currentState!.validate()) {
-      String email = _emailController.text;
-      String password = _passwordController.text;
-      print("Mencoba login dengan Email: $email, Password: $password");
-      // Logic backend...
+  Future<void> _login() async {
+    if (!_formKey.currentState!.validate()) return;
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      await FirebaseAuth.instance.signInWithEmailAndPassword(
+        email: _emailController.text.trim(),
+        password: _passwordController.text.trim(),
+      );
+      // Navigasi akan di-handle oleh AuthWrapper (di tugas berikutnya)
+    } on FirebaseAuthException catch (e) {
+      String message = 'Terjadi kesalahan.';
+      if (e.code == 'user-not-found') {
+        message = 'Email tidak ditemukan.';
+      } else if (e.code == 'wrong-password') {
+        message = 'Password salah.';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
@@ -32,7 +67,7 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     return SafeArea(
       child: Scaffold(
-        body: Center( 
+        body: Center(
           child: SingleChildScrollView(
             child: Padding(
               padding: const EdgeInsets.all(24.0),
@@ -40,19 +75,19 @@ class _LoginScreenState extends State<LoginScreen> {
                 key: _formKey,
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.stretch, 
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Container(
                       width: 120,
                       height: 120,
                       decoration: BoxDecoration(
-                        color: Colors.green[100], 
-                        shape: BoxShape.circle, 
+                        color: Colors.green[100],
+                        shape: BoxShape.circle,
                       ),
                       child: Icon(
-                        Icons.restaurant_menu, 
+                        Icons.restaurant_menu,
                         size: 60,
-                        color: Theme.of(context).primaryColor, 
+                        color: Theme.of(context).primaryColor,
                       ),
                     ),
                     const SizedBox(height: 20),
@@ -98,14 +133,16 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 30),
                     ElevatedButton(
-                      onPressed: _login,
-                      child: const Text("Login"),
+                      onPressed: _isLoading ? null : _login,
+                      child: _isLoading
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Text("Login"),
                     ),
                     const SizedBox(height: 10),
                     TextButton(
-                      onPressed: () {
-                        Navigator.pushNamed(context, '/register');
-                      },
+                      onPressed: _isLoading
+                          ? null
+                          : () => Navigator.pushNamed(context, '/register'),
                       child: const Text("Belum punya akun? Daftar di sini"),
                     )
                   ],
