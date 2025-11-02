@@ -1,4 +1,10 @@
+// File: lib/screens/auth/register_screen.dart
+
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../onboarding/resto_form_screen.dart';
+import '../onboarding/driver_form_screen.dart'; // <-- Ditambahkan
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({Key? key}) : super(key: key);
@@ -11,6 +17,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  bool _isLoading = false;
 
   String? _selectedRole;
   final List<String> _roles = ['pelanggan', 'restoran', 'driver'];
@@ -22,43 +29,114 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  void _register() {
-    if (_formKey.currentState!.validate()) {
-      if (_selectedRole == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Silakan pilih role Anda'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return;
-      }
+  /// Menangani logika pendaftaran berdasarkan role:
+  Future<void> _handleRegister() async {
+    if (!_formKey.currentState!.validate()) return;
 
-      String email = _emailController.text;
-      String password = _passwordController.text;
-      String role = _selectedRole!;
-
-      print("Mencoba daftar: Email: $email, Pass: $password, Role: $role");
-      // Logic backend...
-
-      // Tampilkan pesan sukses
+    if (_selectedRole == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Pendaftaran berhasil! Silakan login.'),
-          backgroundColor: Colors.green,
-        ),
+            content: Text('Silakan pilih role Anda'),
+            backgroundColor: Colors.red),
       );
-      Navigator.pop(context); // Kembali ke halaman login
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
+    try {
+      if (_selectedRole == 'pelanggan') {
+        // Alur 1: Pelanggan (Langsung Daftar)
+        UserCredential userCredential =
+            await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
+
+        User? user = userCredential.user;
+
+        if (user != null) {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .set({
+            'uid': user.uid,
+            'email': user.email,
+            'role': _selectedRole,
+            'createdAt': Timestamp.now(),
+          });
+          
+          if (mounted) {
+            Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
+          }
+        }
+      } else if (_selectedRole == 'restoran') {
+        // Alur 2: Restoran (Lanjut ke Form)
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => RestoFormScreen(
+                email: email,
+                password: password,
+              ),
+            ),
+          );
+        }
+      } else if (_selectedRole == 'driver') {
+        // Alur 3: Driver (Diaktifkan)
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => DriverFormScreen(
+                email: email,
+                password: password,
+              ),
+            ),
+          );
+        }
+      }
+    } on FirebaseAuthException catch (e) {
+      String message = 'Terjadi kesalahan.';
+      if (e.code == 'weak-password') {
+        message = 'Password terlalu lemah.';
+      } else if (e.code == 'email-already-in-use') {
+        message = 'Email ini sudah terdaftar.';
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red),
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoading = false;
+      });
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    // Teks tombol berubah berdasarkan role
+    final buttonText = _selectedRole == 'pelanggan' ? 'Daftar' : 'Lanjut';
+
     return SafeArea(
       child: Scaffold(
         appBar: AppBar(
           title: const Text("Daftar Akun Baru"),
-          elevation: 0, 
+          elevation: 0,
         ),
         body: SingleChildScrollView(
           child: Padding(
@@ -72,7 +150,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   Text(
                     "Buat Akun Anda",
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 26),
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(fontSize: 26),
                   ),
                   Text(
                     "Isi data di bawah untuk mendaftar",
@@ -88,7 +169,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                     keyboardType: TextInputType.emailAddress,
                     validator: (value) {
-                      if (value == null || value.isEmpty || !value.contains('@')) {
+                      if (value == null ||
+                          value.isEmpty ||
+                          !value.contains('@')) {
                         return 'Masukkan email yang valid';
                       }
                       return null;
@@ -110,7 +193,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     },
                   ),
                   const SizedBox(height: 20),
-                  // Dropdown untuk Role
                   DropdownButtonFormField<String>(
                     value: _selectedRole,
                     decoration: const InputDecoration(
@@ -138,8 +220,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   const SizedBox(height: 30),
                   ElevatedButton(
-                    onPressed: _register,
-                    child: const Text("Daftar"),
+                    onPressed: _isLoading ? null : _handleRegister,
+                    child: _isLoading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : Text(buttonText), // Teks tombol dinamis
                   ),
                 ],
               ),
