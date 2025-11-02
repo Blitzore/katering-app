@@ -1,6 +1,9 @@
+// File: lib/screens/auth/register_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../onboarding/resto_form_screen.dart'; // Menggunakan path relatif
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({Key? key}) : super(key: key);
@@ -25,15 +28,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
     super.dispose();
   }
 
-  Future<void> _register() async {
+  /// Menangani logika pendaftaran berdasarkan role:
+  /// 1. Pelanggan: Langsung membuat akun Auth dan data Firestore.
+  /// 2. Mitra (Resto/Driver): Membawa data ke halaman form berikutnya.
+  Future<void> _handleRegister() async {
     if (!_formKey.currentState!.validate()) return;
 
     if (_selectedRole == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Silakan pilih role Anda'),
-          backgroundColor: Colors.red,
-        ),
+            content: Text('Silakan pilih role Anda'),
+            backgroundColor: Colors.red),
       );
       return;
     }
@@ -42,26 +47,50 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _isLoading = true;
     });
 
+    final email = _emailController.text.trim();
+    final password = _passwordController.text.trim();
+
     try {
-      // 1. Buat user di Firebase Auth
-      UserCredential userCredential =
-          await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      );
+      if (_selectedRole == 'pelanggan') {
+        // Alur 1: Pelanggan (Langsung Daftar)
+        UserCredential userCredential =
+            await FirebaseAuth.instance.createUserWithEmailAndPassword(
+          email: email,
+          password: password,
+        );
 
-      User? user = userCredential.user;
+        User? user = userCredential.user;
 
-      if (user != null) {
-        // 2. Simpan data user (termasuk role) ke Firestore
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-          'uid': user.uid,
-          'email': user.email,
-          'role': _selectedRole,
-          'createdAt': Timestamp.now(),
-        });
-        
-        // Navigasi akan di-handle oleh AuthWrapper (di tugas berikutnya)
+        if (user != null) {
+          await FirebaseFirestore.instance
+              .collection('users')
+              .doc(user.uid)
+              .set({
+            'uid': user.uid,
+            'email': user.email,
+            'role': _selectedRole,
+            'createdAt': Timestamp.now(),
+          });
+          // AuthWrapper akan otomatis mengarahkan ke Home
+        }
+      } else if (_selectedRole == 'restoran') {
+        // Alur 2: Restoran (Lanjut ke Form)
+        if (mounted) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => RestoFormScreen(
+                email: email,
+                password: password,
+              ),
+            ),
+          );
+        }
+      } else if (_selectedRole == 'driver') {
+        // Alur 3: Driver (Nanti Dibuat)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Alur driver belum tersedia')),
+        );
       }
     } on FirebaseAuthException catch (e) {
       String message = 'Terjadi kesalahan.';
@@ -75,7 +104,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: ${e.toString()}'), backgroundColor: Colors.red),
+        SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: Colors.red),
       );
     }
 
@@ -88,6 +119,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Teks tombol berubah berdasarkan role
+    final buttonText = _selectedRole == 'pelanggan' ? 'Daftar' : 'Lanjut';
+
     return SafeArea(
       child: Scaffold(
         appBar: AppBar(
@@ -102,13 +136,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // ... (UI dari Minggu 1 tetap sama, tidak perlu saya copy-paste lagi) ...
-                  // ... (Text "Buat Akun Anda", TextFormField Email, Password, Dropdown Role) ...
                   const SizedBox(height: 20),
                   Text(
                     "Buat Akun Anda",
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 26),
+                    style: Theme.of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(fontSize: 26),
                   ),
                   Text(
                     "Isi data di bawah untuk mendaftar",
@@ -124,7 +159,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     ),
                     keyboardType: TextInputType.emailAddress,
                     validator: (value) {
-                      if (value == null || value.isEmpty || !value.contains('@')) {
+                      if (value == null ||
+                          value.isEmpty ||
+                          !value.contains('@')) {
                         return 'Masukkan email yang valid';
                       }
                       return null;
@@ -173,10 +210,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   const SizedBox(height: 30),
                   ElevatedButton(
-                    onPressed: _isLoading ? null : _register,
+                    onPressed: _isLoading ? null : _handleRegister,
                     child: _isLoading
                         ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text("Daftar"),
+                        : Text(buttonText), // Teks tombol dinamis
                   ),
                 ],
               ),
