@@ -9,7 +9,6 @@ import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/auth_wrapper.dart';
 import 'screens/home_placeholder.dart';
-import 'screens/onboarding/pending_verification_screen.dart';
 import 'screens/admin/admin_dashboard_screen.dart';
 import 'screens/admin/verification_list_screen.dart';
 
