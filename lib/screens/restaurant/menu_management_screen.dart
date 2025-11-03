@@ -3,7 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../../models/menu_model.dart';
-// import 'add_edit_menu_screen.dart'; // Akan digunakan di commit berikutnya
+import 'add_edit_menu_screen.dart'; // Import halaman form
+import '../../services/restaurant_service.dart'; // Import service
 
 /// Halaman untuk mengelola (CRUD) menu oleh pemilik restoran.
 class MenuManagementScreen extends StatelessWidget {
@@ -14,7 +15,6 @@ class MenuManagementScreen extends StatelessWidget {
     final user = FirebaseAuth.instance.currentUser;
 
     if (user == null) {
-      // Seharusnya tidak terjadi jika sudah dijaga AuthWrapper
       return const Scaffold(
           body: Center(child: Text('Anda harus login ulang.')));
     }
@@ -57,7 +57,7 @@ class MenuManagementScreen extends StatelessWidget {
               .toList();
 
           return ListView.builder(
-            padding: const EdgeInsets.only(bottom: 80), // Padding untuk FAB
+            padding: const EdgeInsets.only(bottom: 80),
             itemCount: menus.length,
             itemBuilder: (context, index) {
               final menu = menus[index];
@@ -73,8 +73,12 @@ class MenuManagementScreen extends StatelessWidget {
         child: const Icon(Icons.add),
         tooltip: 'Tambah Menu Baru',
         onPressed: () {
-          // Akan diimplementasikan di commit berikutnya
-          print('Navigasi ke Tambah Menu');
+          // Navigasi ke Halaman Tambah (mode Tambah)
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (context) => AddEditMenuScreen(restoId: user.uid)),
+          );
         },
       ),
     );
@@ -85,12 +89,50 @@ class MenuManagementScreen extends StatelessWidget {
 class _MenuListItem extends StatelessWidget {
   final MenuModel menu;
   final String restoId;
+  // Tambahkan instance service
+  final RestaurantService _service = RestaurantService();
 
-  const _MenuListItem({
+  _MenuListItem({
     Key? key,
     required this.menu,
     required this.restoId,
   }) : super(key: key);
+  
+  /// Menampilkan dialog konfirmasi sebelum menghapus
+  void _showDeleteDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Hapus Menu?'),
+        content: Text('Anda yakin ingin menghapus "${menu.namaMenu}"?'),
+        actions: [
+          TextButton(
+            child: const Text('Batal'),
+            onPressed: () => Navigator.of(ctx).pop(),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Ya, Hapus'),
+            onPressed: () async {
+              Navigator.of(ctx).pop(); // Tutup dialog
+              try {
+                await _service.deleteMenu(restoId: restoId, menuId: menu.menuId);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Menu berhasil dihapus'),
+                  backgroundColor: Colors.green),
+                );
+              } catch (e) {
+                 ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Gagal menghapus: $e'),
+                  backgroundColor: Colors.red),
+                );
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -108,7 +150,15 @@ class _MenuListItem extends StatelessWidget {
                 const Icon(Icons.broken_image),
           ),
         ),
-        title: Text(menu.namaMenu),
+        title: Text(
+          menu.namaMenu,
+          style: TextStyle(
+            decoration: !menu.isAvailable 
+                ? TextDecoration.lineThrough 
+                : TextDecoration.none,
+            color: !menu.isAvailable ? Colors.grey : null,
+          ),
+        ),
         subtitle: Text('Rp ${menu.harga}'),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -118,8 +168,16 @@ class _MenuListItem extends StatelessWidget {
               icon: Icon(Icons.edit, color: Colors.blue[700]),
               tooltip: 'Edit Menu',
               onPressed: () {
-                // Akan diimplementasikan di commit berikutnya
-                print('Navigasi ke Edit Menu (ID: ${menu.menuId})');
+                // Navigasi ke Halaman Edit (mode Edit)
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => AddEditMenuScreen(
+                      restoId: restoId,
+                      menu: menu, // <-- Kirim data menu
+                    ),
+                  ),
+                );
               },
             ),
             // Tombol Hapus
@@ -127,8 +185,8 @@ class _MenuListItem extends StatelessWidget {
               icon: Icon(Icons.delete, color: Colors.red[700]),
               tooltip: 'Hapus Menu',
               onPressed: () {
-                // Akan diimplementasikan di commit berikutnya
-                print('Tampilkan dialog hapus (ID: ${menu.menuId})');
+                // Panggil dialog konfirmasi hapus
+                _showDeleteDialog(context);
               },
             ),
           ],
