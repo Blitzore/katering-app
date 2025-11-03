@@ -121,6 +121,7 @@ class _DriverFormScreenState extends State<DriverFormScreen> {
       setState(() { _loadingMessage = 'Menyimpan data (2/2)...'; });
       await FirebaseFirestore.instance.collection('drivers').doc(user.uid).set({
         'uid': user.uid,
+        'email': widget.email,
         'namaLengkap': _namaController.text,
         'noHp': _noHpController.text,
         'noPolisi': _noPolisiController.text,

@@ -16,10 +16,10 @@ class RestoFormScreen extends StatefulWidget {
   final String password;
 
   const RestoFormScreen({
-    Key? key,
+    super.key,
     required this.email,
     required this.password,
-  }) : super(key: key);
+  });
 
   @override
   _RestoFormScreenState createState() => _RestoFormScreenState();
@@ -59,10 +59,10 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
 
   /// Menampilkan dialog untuk menambah data menu baru.
   Future<void> _showAddMenuDialog() async {
-    final _menuFormKey = GlobalKey<FormState>();
-    final _namaMenuController = TextEditingController();
-    final _hargaMenuController = TextEditingController();
-    File? _menuImageFile;
+    final menuFormKey = GlobalKey<FormState>();
+    final namaMenuController = TextEditingController();
+    final hargaMenuController = TextEditingController();
+    File? menuImageFile;
 
     await showDialog(
       context: context,
@@ -73,7 +73,7 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
             return AlertDialog(
               title: const Text('Tambah Menu Baru'),
               content: Form(
-                key: _menuFormKey,
+                key: menuFormKey,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -83,7 +83,7 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
                           final file = await _pickImage();
                           if (file != null) {
                             setDialogState(() {
-                              _menuImageFile = file;
+                              menuImageFile = file;
                             });
                           }
                         },
@@ -94,7 +94,7 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
                             border: Border.all(color: Colors.grey),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: _menuImageFile == null
+                          child: menuImageFile == null
                               ? const Center(
                                   child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -104,19 +104,19 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
                                     Text('Pilih Foto Makanan')
                                   ],
                                 ))
-                              : Image.file(_menuImageFile!, fit: BoxFit.cover),
+                              : Image.file(menuImageFile!, fit: BoxFit.cover),
                         ),
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
-                        controller: _namaMenuController,
+                        controller: namaMenuController,
                         decoration:
                             const InputDecoration(labelText: 'Nama Makanan'),
                         validator: (v) => v!.isEmpty ? 'Nama wajib diisi' : null,
                       ),
                       const SizedBox(height: 10),
                       TextFormField(
-                        controller: _hargaMenuController,
+                        controller: hargaMenuController,
                         decoration:
                             const InputDecoration(labelText: 'Harga (Rp)'),
                         keyboardType: TextInputType.number,
@@ -136,18 +136,18 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    if (_menuFormKey.currentState!.validate() &&
-                        _menuImageFile != null) {
+                    if (menuFormKey.currentState!.validate() &&
+                        menuImageFile != null) {
                       final newItem = MenuItem(
-                        imageFile: _menuImageFile!,
-                        namaMenu: _namaMenuController.text,
-                        harga: int.parse(_hargaMenuController.text),
+                        imageFile: menuImageFile!,
+                        namaMenu: namaMenuController.text,
+                        harga: int.parse(hargaMenuController.text),
                       );
                       setState(() {
                         _menuItems.add(newItem);
                       });
                       Navigator.of(ctx).pop();
-                    } else if (_menuImageFile == null) {
+                    } else if (menuImageFile == null) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                             content: Text('Foto menu wajib diisi')),
@@ -200,7 +200,7 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
           CloudinaryFile.fromFile(item.imageFile.path,
               resourceType: CloudinaryResourceType.Image,
               folder: 'foto_menu',
-              publicId: 'menu_${menuId}'),
+              publicId: 'menu_$menuId'),
         );
         
         menuDataToSave.add({
@@ -241,6 +241,7 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
           .doc(user.uid)
           .set({
         'uid': user.uid,
+        'email': widget.email,
         'namaToko': _namaTokoController.text,
         'alamat': _alamatTokoController.text,
         'status': 'pending',

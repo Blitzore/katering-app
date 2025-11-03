@@ -1,7 +1,7 @@
 // File: lib/screens/admin/verification_list_screen.dart
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
-// import 'verification_detail_screen.dart'; // Akan digunakan di commit berikutnya
+import 'verification_detail_screen.dart'; // Import halaman detail
 
 /// Menampilkan daftar mitra (restoran & driver) yang statusnya 'pending'.
 class VerificationListScreen extends StatelessWidget {
@@ -101,8 +101,16 @@ class _PartnerList extends StatelessWidget {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () {
                   // Navigasi ke halaman detail
-                  // Akan diimplementasikan di commit berikutnya
-                  print('Navigasi ke detail (UID: ${doc.id})');
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => VerificationDetailScreen(
+                        collection: collectionName,
+                        uid: doc.id,
+                        data: data,
+                      ),
+                    ),
+                  );
                 },
               ),
             );
