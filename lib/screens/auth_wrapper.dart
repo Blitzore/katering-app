@@ -7,7 +7,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'auth/login_screen.dart';
 import 'onboarding/pending_verification_screen.dart';
 import 'home_placeholder.dart';
-import 'admin/admin_dashboard_screen.dart'; // Import halaman admin
+import 'admin/admin_dashboard_screen.dart'; // Import untuk Admin
+import 'restaurant/restaurant_dashboard.dart'; // Import untuk Restoran
 
 /// Widget [AuthWrapper] adalah "Penjaga Gerbang" utama aplikasi.
 ///
@@ -80,7 +81,7 @@ class RoleBasedRedirect extends StatelessWidget {
         // Arahkan berdasarkan role
         switch (role) {
           case 'admin':
-            return const AdminDashboardScreen(); // Halaman baru
+            return const AdminDashboardScreen();
           case 'pelanggan':
             return const HomePlaceholder();
           case 'restoran':
@@ -88,7 +89,7 @@ class RoleBasedRedirect extends StatelessWidget {
             return _CheckPartnerStatus(
               uid: user.uid,
               collection: 'restaurants',
-              homePage: const HomePlaceholder(), // Sesuai kode asli
+              homePage: const RestaurantDashboard(), // <-- DIUBAH
               role: role,
             );
           case 'driver':
@@ -96,7 +97,7 @@ class RoleBasedRedirect extends StatelessWidget {
             return _CheckPartnerStatus(
               uid: user.uid,
               collection: 'drivers',
-              homePage: const HomePlaceholder(), // Sesuai kode asli
+              homePage: const HomePlaceholder(), // Nanti jadi DriverDashboard
               role: role,
             );
           default:
@@ -160,7 +161,7 @@ class _CheckPartnerStatus extends StatelessWidget {
         }
 
         if (status == 'verified') {
-          return homePage;
+          return homePage; // <-- Ini akan mengarah ke RestaurantDashboard
         }
 
         // Default (misal: 'ditolak' atau status lain)
