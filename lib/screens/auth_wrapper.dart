@@ -7,6 +7,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'auth/login_screen.dart';
 import 'onboarding/pending_verification_screen.dart';
 import 'home_placeholder.dart';
+import 'admin/admin_dashboard_screen.dart'; // Import halaman admin
 
 /// Widget [AuthWrapper] adalah "Penjaga Gerbang" utama aplikasi.
 ///
@@ -78,27 +79,26 @@ class RoleBasedRedirect extends StatelessWidget {
 
         // Arahkan berdasarkan role
         switch (role) {
+          case 'admin':
+            return const AdminDashboardScreen(); // Halaman baru
           case 'pelanggan':
             return const HomePlaceholder();
-
           case 'restoran':
             // Jika restoran, cek status pendaftarannya di koleksi 'restaurants'
             return _CheckPartnerStatus(
               uid: user.uid,
               collection: 'restaurants',
-              homePage: const HomePlaceholder(), // Nanti jadi RestoDashboard
+              homePage: const HomePlaceholder(), // Sesuai kode asli
               role: role,
             );
-
           case 'driver':
             // Jika driver, cek status pendaftarannya di koleksi 'drivers'
             return _CheckPartnerStatus(
               uid: user.uid,
               collection: 'drivers',
-              homePage: const HomePlaceholder(), // Nanti jadi DriverDashboard
+              homePage: const HomePlaceholder(), // Sesuai kode asli
               role: role,
             );
-
           default:
             return const LoginScreen(); // Role tidak dikenal
         }
