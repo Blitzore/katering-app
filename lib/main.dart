@@ -10,6 +10,8 @@ import 'screens/auth/register_screen.dart';
 import 'screens/auth_wrapper.dart';
 import 'screens/home_placeholder.dart';
 import 'screens/onboarding/pending_verification_screen.dart';
+import 'screens/admin/admin_dashboard_screen.dart';
+import 'screens/admin/verification_list_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -99,6 +101,10 @@ class MyApp extends StatelessWidget {
         '/login': (context) => const LoginScreen(),
         '/register': (context) => const RegisterScreen(),
         '/home': (context) => const HomePlaceholder(),
+        
+        // Rute Admin
+        '/admin_dashboard': (context) => const AdminDashboardScreen(),
+        '/admin_verification_list': (context) => const VerificationListScreen(),
       },
     );
   }
