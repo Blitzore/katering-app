@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import '../../../models/menu_model.dart';
 import '../../../models/restaurant_model.dart';
 import '../../../services/customer_service.dart';
-import 'menu_card.dart'; // Kita gunakan lagi menu_card yang sudah ada
+import '../restaurant_detail_screen.dart'; // Import halaman detail baru
+import 'menu_card.dart'; 
 
 /// Widget untuk menampilkan satu baris restoran
 /// beserta daftar menu horizontalnya.
@@ -27,6 +28,17 @@ class _RestaurantMenuSectionState extends State<RestaurantMenuSection> {
     _menusFuture = _customerService.getMenusForRestaurant(widget.restaurant.id);
   }
 
+  /// Navigasi ke halaman detail restoran
+  void _navigateToDetail(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            RestaurantDetailScreen(restaurant: widget.restaurant),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -34,23 +46,47 @@ class _RestaurantMenuSectionState extends State<RestaurantMenuSection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Judul Restoran
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Text(
-              widget.restaurant.namaToko,
-              style: Theme.of(context)
-                  .textTheme
-                  .titleLarge
-                  ?.copyWith(fontWeight: FontWeight.bold),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Text(
-              widget.restaurant.alamat,
-              style: Theme.of(context).textTheme.bodySmall,
+          // 1. Judul Restoran (Dibuat bisa diklik)
+          InkWell(
+            onTap: () => _navigateToDetail(context),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.restaurant.namaToko,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleLarge
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                      Text(
+                        'Lihat semua',
+                        style: TextStyle(
+                          color: Theme.of(context).primaryColor,
+                          fontSize: 14,
+                        ),
+                      ),
+                      Icon(
+                        Icons.chevron_right,
+                        color: Theme.of(context).primaryColor,
+                        size: 20,
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    widget.restaurant.alamat,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ],
+              ),
             ),
           ),
           const SizedBox(height: 12),
