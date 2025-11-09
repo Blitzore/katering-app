@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../models/menu_model.dart';
 import '../../models/subscription_slot.dart';
 import '../../providers/cart_provider.dart';
+import 'checkout_screen.dart'; // Import halaman checkout baru
 
 /// Halaman untuk kustomisasi menu harian (mengisi slot).
 class CustomizationScreen extends StatefulWidget {
@@ -15,7 +16,7 @@ class CustomizationScreen extends StatefulWidget {
     Key? key,
     required this.totalDays,
     required this.mealsPerDay,
-    required this.selectedMealTime, // Terima data baru
+    required this.selectedMealTime,
   }) : super(key: key);
 
   @override
@@ -71,9 +72,13 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       return;
     }
 
-    // TODO: Navigasi ke Halaman Checkout (Ringkasan)
-    print('Lanjut ke Checkout. ${_slots.length} slot terisi.');
-    // Di sini Anda bisa mengirim _slots ke halaman checkout
+    // Navigasi ke Halaman Checkout dan kirim data slot
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CheckoutScreen(slots: _slots),
+      ),
+    );
   }
 
   @override
