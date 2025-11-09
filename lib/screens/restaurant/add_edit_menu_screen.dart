@@ -102,7 +102,8 @@ class _AddEditMenuScreenState extends State<AddEditMenuScreen> {
           harga: harga,
           isAvailable: _isAvailable,
           existingFotoUrl: widget.menu!.fotoUrl,
-          newImageFile: _imageFile, // Kirim gambar baru jika ada
+          newImageFile: _imageFile,
+          statusResto: widget.menu!.statusResto, // Kirim status lama
         );
         
       } else {

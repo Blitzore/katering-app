@@ -8,6 +8,8 @@ class MenuModel {
   final int harga;
   final String fotoUrl;
   final bool isAvailable;
+  final String restaurantId;
+  final String statusResto;
 
   MenuModel({
     required this.menuId,
@@ -15,6 +17,8 @@ class MenuModel {
     required this.harga,
     required this.fotoUrl,
     required this.isAvailable,
+    required this.restaurantId,
+    this.statusResto = 'pending',
   });
 
   /// Konversi dari DocumentSnapshot (Firestore) ke objek MenuModel.
@@ -26,17 +30,20 @@ class MenuModel {
       harga: data['harga'] ?? 0,
       fotoUrl: data['fotoUrl'] ?? '',
       isAvailable: data['isAvailable'] ?? true,
+      restaurantId: data['restaurantId'] ?? '',
+      statusResto: data['statusResto'] ?? 'pending',
     );
   }
 
   /// Konversi dari objek MenuModel ke Map (untuk ditulis ke Firestore).
   Map<String, dynamic> toJson() {
     return {
-      // menuId tidak perlu disimpan di dalam data, karena itu adalah ID dokumen
       'namaMenu': namaMenu,
       'harga': harga,
       'fotoUrl': fotoUrl,
       'isAvailable': isAvailable,
+      'restaurantId': restaurantId,
+      'statusResto': statusResto,
     };
   }
 }

@@ -16,10 +16,10 @@ class RestoFormScreen extends StatefulWidget {
   final String password;
 
   const RestoFormScreen({
-    super.key,
+    Key? key,
     required this.email,
     required this.password,
-  });
+  }) : super(key: key);
 
   @override
   _RestoFormScreenState createState() => _RestoFormScreenState();
@@ -32,7 +32,6 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
 
   final List<MenuItem> _menuItems = [];
   String? _loadingMessage;
-
   final cloudinary =
       CloudinaryPublic('drdfrxobm', 'katering_app', cache: false);
 
@@ -59,10 +58,10 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
 
   /// Menampilkan dialog untuk menambah data menu baru.
   Future<void> _showAddMenuDialog() async {
-    final menuFormKey = GlobalKey<FormState>();
-    final namaMenuController = TextEditingController();
-    final hargaMenuController = TextEditingController();
-    File? menuImageFile;
+    final _menuFormKey = GlobalKey<FormState>();
+    final _namaMenuController = TextEditingController();
+    final _hargaMenuController = TextEditingController();
+    File? _menuImageFile;
 
     await showDialog(
       context: context,
@@ -73,7 +72,7 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
             return AlertDialog(
               title: const Text('Tambah Menu Baru'),
               content: Form(
-                key: menuFormKey,
+                key: _menuFormKey,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -83,7 +82,7 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
                           final file = await _pickImage();
                           if (file != null) {
                             setDialogState(() {
-                              menuImageFile = file;
+                              _menuImageFile = file;
                             });
                           }
                         },
@@ -94,7 +93,7 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
                             border: Border.all(color: Colors.grey),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: menuImageFile == null
+                          child: _menuImageFile == null
                               ? const Center(
                                   child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -104,19 +103,19 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
                                     Text('Pilih Foto Makanan')
                                   ],
                                 ))
-                              : Image.file(menuImageFile!, fit: BoxFit.cover),
+                              : Image.file(_menuImageFile!, fit: BoxFit.cover),
                         ),
                       ),
                       const SizedBox(height: 16),
                       TextFormField(
-                        controller: namaMenuController,
+                        controller: _namaMenuController,
                         decoration:
                             const InputDecoration(labelText: 'Nama Makanan'),
                         validator: (v) => v!.isEmpty ? 'Nama wajib diisi' : null,
                       ),
                       const SizedBox(height: 10),
                       TextFormField(
-                        controller: hargaMenuController,
+                        controller: _hargaMenuController,
                         decoration:
                             const InputDecoration(labelText: 'Harga (Rp)'),
                         keyboardType: TextInputType.number,
@@ -136,18 +135,18 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
                 ),
                 ElevatedButton(
                   onPressed: () {
-                    if (menuFormKey.currentState!.validate() &&
-                        menuImageFile != null) {
+                    if (_menuFormKey.currentState!.validate() &&
+                        _menuImageFile != null) {
                       final newItem = MenuItem(
-                        imageFile: menuImageFile!,
-                        namaMenu: namaMenuController.text,
-                        harga: int.parse(hargaMenuController.text),
+                        imageFile: _menuImageFile!,
+                        namaMenu: _namaMenuController.text,
+                        harga: int.parse(_hargaMenuController.text),
                       );
                       setState(() {
                         _menuItems.add(newItem);
                       });
                       Navigator.of(ctx).pop();
-                    } else if (menuImageFile == null) {
+                    } else if (_menuImageFile == null) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                             content: Text('Foto menu wajib diisi')),
@@ -172,7 +171,6 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
   /// 5. Simpan data menu ke subkoleksi 'menus'
   Future<void> _submitForm() async {
     if (!_formKey.currentState!.validate()) return;
-
     if (_menuItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Tambahkan minimal 1 menu makanan')),
@@ -185,6 +183,18 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
     });
 
     try {
+      // 2. Buat Akun Firebase Auth (DIPINDAH KE ATAS)
+      // Kita perlu user.uid sebelum upload foto untuk menu
+      setState(() { _loadingMessage = "Membuat akun..."; });
+      UserCredential userCredential =
+          await FirebaseAuth.instance.createUserWithEmailAndPassword(
+        email: widget.email,
+        password: widget.password,
+      );
+      final user = userCredential.user;
+      if (user == null) throw Exception("Gagal membuat akun");
+
+
       // 1. Upload Foto Menu
       List<Map<String, dynamic>> menuDataToSave = [];
       int counter = 1;
@@ -193,14 +203,13 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
         setState(() {
           _loadingMessage = "Mengunggah menu ($counter/${_menuItems.length})...";
         });
-
         String menuId = FirebaseFirestore.instance.collection('temp').doc().id;
 
         CloudinaryResponse response = await cloudinary.uploadFile(
           CloudinaryFile.fromFile(item.imageFile.path,
               resourceType: CloudinaryResourceType.Image,
               folder: 'foto_menu',
-              publicId: 'menu_$menuId'),
+              publicId: 'menu_${menuId}'),
         );
         
         menuDataToSave.add({
@@ -209,22 +218,12 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
           'harga': item.harga,
           'fotoUrl': response.secureUrl,
           'isAvailable': true,
+          'restaurantId': user.uid, // Data struktur baru
+          'statusResto': 'pending', // Data struktur baru
         });
         counter++;
       }
       
-      // 2. Buat Akun Firebase Auth
-      setState(() { _loadingMessage = "Membuat akun..."; });
-      
-      UserCredential userCredential =
-          await FirebaseAuth.instance.createUserWithEmailAndPassword(
-        email: widget.email,
-        password: widget.password,
-      );
-
-      final user = userCredential.user;
-      if (user == null) throw Exception("Gagal membuat akun");
-
       // 3. Simpan Data Role ke 'users'
       setState(() { _loadingMessage = "Menyimpan data (1/3)..."; });
       await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
@@ -241,7 +240,7 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
           .doc(user.uid)
           .set({
         'uid': user.uid,
-        'email': widget.email,
+        'email': widget.email, // Simpan email di sini juga
         'namaToko': _namaTokoController.text,
         'alamat': _alamatTokoController.text,
         'status': 'pending',
@@ -252,16 +251,20 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
       setState(() { _loadingMessage = "Menyimpan data (3/3)..."; });
       final batch = FirebaseFirestore.instance.batch();
       for (var menuData in menuDataToSave) {
+        // Ambil ID dari data map, jangan pakai doc() baru
         final menuDocRef = FirebaseFirestore.instance
             .collection('restaurants')
             .doc(user.uid)
             .collection('menus')
             .doc(menuData['menuId']);
+            
+        // Set data map ke dokumen
         batch.set(menuDocRef, menuData);
       }
       await batch.commit();
 
-      // Selesai. Reset navigasi kembali ke AuthWrapper (akar)
+      // Selesai.
+      // Reset navigasi kembali ke AuthWrapper (akar)
       if (mounted) {
         Navigator.pushNamedAndRemoveUntil(context, '/', (route) => false);
       }
@@ -270,7 +273,6 @@ class _RestoFormScreenState extends State<RestoFormScreen> {
       _showErrorDialog('Error Pendaftaran', e.code == 'email-already-in-use'
           ? 'Email ini sudah terdaftar. Silakan kembali dan gunakan email lain.'
           : 'Terjadi error: ${e.message}');
-          
     } catch (e) {
       _showErrorDialog('Terjadi Error', 'Detail Error: ${e.toString()}');
     }
