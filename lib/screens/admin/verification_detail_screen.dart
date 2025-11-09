@@ -10,11 +10,11 @@ class VerificationDetailScreen extends StatefulWidget {
   final Map<String, dynamic> data;
 
   const VerificationDetailScreen({
-    Key? key,
+    super.key,
     required this.collection,
     required this.uid,
     required this.data,
-  }) : super(key: key);
+  });
 
   @override
   _VerificationDetailScreenState createState() =>
@@ -164,7 +164,7 @@ class _VerificationDetailScreenState extends State<VerificationDetailScreen> {
                   key,
                   widget.data[key].toString(),
                 ))
-            .toList(),
+            ,
         
         // Tambahkan pemisah dan list menu
         const SizedBox(height: 16),
@@ -284,7 +284,7 @@ class _VerificationDetailScreenState extends State<VerificationDetailScreen> {
 /// Widget baru untuk mengambil dan menampilkan daftar menu restoran
 class _MenuReviewList extends StatelessWidget {
   final String restoId;
-  const _MenuReviewList({Key? key, required this.restoId}) : super(key: key);
+  const _MenuReviewList({super.key, required this.restoId});
 
   @override
   Widget build(BuildContext context) {

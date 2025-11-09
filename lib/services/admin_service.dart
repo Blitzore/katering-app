@@ -16,12 +16,32 @@ class AdminService {
     required String newStatus,
   }) async {
     try {
-      await _firestore
-          .collection(collection)
-          .doc(uid)
-          .update({'status': newStatus});
+      // Buat WriteBatch untuk multi-update
+      final batch = _firestore.batch();
+
+      // 1. Update dokumen utama (restaurant atau driver)
+      final docRef = _firestore.collection(collection).doc(uid);
+      batch.update(docRef, {'status': newStatus});
+
+      // 2. JIKA ini adalah 'restaurants', update juga semua subkoleksi 'menus'
+      if (collection == 'restaurants') {
+        // Ambil semua dokumen 'menus' di bawah restoran ini
+        final menuQuery = await _firestore
+            .collection(collection)
+            .doc(uid)
+            .collection('menus')
+            .get();
+            
+        // Loop dan tambahkan update ke batch
+        for (final doc in menuQuery.docs) {
+          batch.update(doc.reference, {'statusResto': newStatus});
+        }
+      }
+      
+      // 3. Commit semua perubahan sekaligus
+      await batch.commit();
+
     } catch (e) {
-      // Menangani error jika terjadi
       print('Error updating partner status: $e');
       throw Exception('Gagal memperbarui status mitra.');
     }
