@@ -8,7 +8,7 @@ import '../../services/restaurant_service.dart'; // Import service
 
 /// Halaman untuk mengelola (CRUD) menu oleh pemilik restoran.
 class MenuManagementScreen extends StatelessWidget {
-  const MenuManagementScreen({Key? key}) : super(key: key);
+  const MenuManagementScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +70,6 @@ class MenuManagementScreen extends StatelessWidget {
         },
       ),
       floatingActionButton: FloatingActionButton(
-        child: const Icon(Icons.add),
         tooltip: 'Tambah Menu Baru',
         onPressed: () {
           // Navigasi ke Halaman Tambah (mode Tambah)
@@ -80,6 +79,7 @@ class MenuManagementScreen extends StatelessWidget {
                 builder: (context) => AddEditMenuScreen(restoId: user.uid)),
           );
         },
+        child: const Icon(Icons.add),
       ),
     );
   }
@@ -93,10 +93,10 @@ class _MenuListItem extends StatelessWidget {
   final RestaurantService _service = RestaurantService();
 
   _MenuListItem({
-    Key? key,
+    super.key,
     required this.menu,
     required this.restoId,
-  }) : super(key: key);
+  });
   
   /// Menampilkan dialog konfirmasi sebelum menghapus
   void _showDeleteDialog(BuildContext context) {

@@ -3,7 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/menu_model.dart';
 import '../../models/restaurant_model.dart';
-import 'widgets/menu_card.dart'; // Kita gunakan ulang menu card
+import 'widgets/menu_card.dart';
+import 'widgets/cart_badge.dart'; // Import widget baru
 
 /// Halaman yang menampilkan semua menu dari satu restoran.
 class RestaurantDetailScreen extends StatefulWidget {
@@ -38,6 +39,9 @@ class _RestaurantDetailScreenState extends State<RestaurantDetailScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.restaurant.namaToko),
+        actions: const [
+          CartBadge(), // Tambahkan Ikon Keranjang di sini
+        ],
       ),
       body: StreamBuilder<List<MenuModel>>(
         stream: _menuStream,

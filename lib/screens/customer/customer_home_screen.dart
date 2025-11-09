@@ -3,7 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import '../../models/restaurant_model.dart';
 import '../../services/customer_service.dart';
-import 'widgets/restaurant_menu_section.dart'; // Import widget baru
+import 'widgets/restaurant_menu_section.dart';
+import 'widgets/cart_badge.dart'; // Import widget baru
 
 /// Halaman utama (Home) untuk pelanggan.
 /// Menampilkan daftar restoran, masing-masing dengan daftar menu horizontal.
@@ -30,6 +31,7 @@ class _CustomerHomeScreenState extends State<CustomerHomeScreen> {
       appBar: AppBar(
         title: const Text('Pilih Menu Katering'),
         actions: [
+          const CartBadge(), // Tambahkan Ikon Keranjang di sini
           IconButton(
             icon: const Icon(Icons.logout),
             tooltip: 'Logout',
