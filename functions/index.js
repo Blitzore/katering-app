@@ -1,6 +1,5 @@
 // File: functions/index.js
 
-// JANGAN gunakan 'firebase-functions' lagi
 const admin = require("firebase-admin");
 const midtransClient = require("midtrans-client");
 const express = require("express");
@@ -51,7 +50,11 @@ app.post("/createTransaction", async (req, res) => {
       throw new Error("User ID tidak ditemukan di request body.");
     }
 
-    const orderId = `KATERING-${userId}-${Date.now()}`;
+    // ▼▼▼ [PERBAIKAN DI SINI] ▼▼▼
+    // Kita hapus "KATERING-" agar ID tidak terlalu panjang (Maks 50)
+    // ID baru akan memiliki panjang 28 + 1 + 13 = 42 karakter
+    const orderId = `${userId}-${Date.now()}`;
+    // ▲▲▲ [PERBAIKAN DI SINI] ▲▲▲
 
     // 1. Buat order di Firestore
     const orderPayload = {
