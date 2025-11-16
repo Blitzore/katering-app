@@ -10,25 +10,19 @@ const app = express();
 app.use(cors({origin: true}));
 app.use(express.json());
 
-// --- Inisialisasi Firebase Admin (WAJIB) ---
-// 1. Ambil string JSON dari Environment Variable Vercel
+// --- Inisialisasi Firebase Admin ---
 const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT;
-
 if (!serviceAccountString) {
   console.error("Variabel FIREBASE_SERVICE_ACCOUNT tidak ditemukan.");
 }
-
-// 2. Ubah string JSON kembali menjadi objek
 const serviceAccount = JSON.parse(serviceAccountString);
-
-// 3. Inisialisasi Firebase Admin SDK
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 const db = admin.firestore();
 // --- Akhir Inisialisasi Firebase ---
 
-// Inisialisasi Midtrans Snap client (Baca dari Environment Variables Vercel)
+// Inisialisasi Midtrans Snap client
 const snap = new midtransClient.Snap({
   isProduction: false,
   serverKey: process.env.MIDTRANS_SERVER_KEY,
@@ -37,7 +31,75 @@ const snap = new midtransClient.Snap({
 
 /**
  * =================================================================
- * ENDPOINT 1: createTransaction (Dipanggil oleh Flutter)
+ * FUNGSI BARU: generateDailyOrders
+ * =================================================================
+ * Logika untuk membuat pesanan harian (Tugas Minggu ke-6)
+ */
+const generateDailyOrders = async (orderId, orderData) => {
+  const batch = db.batch();
+  const slots = orderData.items; // Array slot dari order
+  const userId = orderData.userId;
+
+  // 1. Buat satu dokumen langganan (subscription)
+  const subscriptionRef = db.collection("subscriptions").doc(orderId);
+  batch.set(subscriptionRef, {
+    ...orderData,
+    status: "active", // Status langganan aktif
+  });
+
+  // 2. Tentukan tanggal mulai (hari ini/besok, tergantung jam)
+  const startDate = new Date();
+  // (Logika sederhana: jika pesan sebelum jam 5 sore, mulai besok)
+  if (startDate.getHours() > 17) {
+    startDate.setDate(startDate.getDate() + 1);
+  }
+
+  // 3. Loop dan buat dokumen pesanan harian (daily_orders)
+  // Kita asumsikan 1 slot = 1 hari
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    const menu = slot.selectedMenu; // (Asumsi dari Flutter)
+
+    // Hitung tanggal pengiriman
+    const deliveryDate = new Date(startDate);
+    deliveryDate.setDate(deliveryDate.getDate() + i);
+
+    // Buat ID unik untuk pesanan harian
+    const dailyOrderId = `${orderId}_day${i + 1}`;
+    const dailyOrderRef = db.collection("daily_orders").doc(dailyOrderId);
+
+    // Data untuk dokumen pesanan harian
+    const dailyOrderData = {
+      subscriptionId: orderId,
+      userId: userId,
+      day: slot.day, // Misal: 1
+      mealTime: slot.mealTime, // Misal: "Makan Siang"
+      
+      // Info Menu & Resto
+      menuId: menu.menuId,
+      namaMenu: menu.namaMenu,
+      harga: menu.harga,
+      fotoUrl: menu.fotoUrl,
+      restaurantId: menu.restaurantId, // <-- Ini SANGAT PENTING
+      
+      // Status & Tanggal
+      deliveryDate: admin.firestore.Timestamp.fromDate(deliveryDate),
+      status: "confirmed", // Status awal (menunggu disiapkan resto)
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    
+    batch.set(dailyOrderRef, dailyOrderData);
+  }
+  
+  // 4. Commit semua operasi database sekaligus
+  await batch.commit();
+  console.log(`Berhasil generate ${slots.length} pesanan untuk ${orderId}`);
+};
+
+
+/**
+ * =================================================================
+ * ENDPOINT 1: createTransaction (Tidak Berubah)
  * =================================================================
  */
 app.post("/createTransaction", async (req, res) => {
@@ -49,22 +111,33 @@ app.post("/createTransaction", async (req, res) => {
     if (!userId) {
       throw new Error("User ID tidak ditemukan di request body.");
     }
-
-    // ▼▼▼ [PERBAIKAN DI SINI] ▼▼▼
-    // Kita hapus "KATERING-" agar ID tidak terlalu panjang (Maks 50)
-    // ID baru akan memiliki panjang 28 + 1 + 13 = 42 karakter
+    
+    // Kita gunakan User ID + timestamp untuk Order ID
     const orderId = `${userId}-${Date.now()}`;
-    // ▲▲▲ [PERBAIKAN DI SINI] ▲▲▲
 
-    // 1. Buat order di Firestore
+    // 1. Buat order di Firestore (sebagai 'pending_payment')
+    // Kita ganti nama koleksi agar lebih jelas
+    const orderRef = db.collection("pending_payments").doc(orderId);
+    
     const orderPayload = {
       userId: userId,
       status: "pending",
       totalPrice: finalPrice,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      items: slots,
+      // 'items' sekarang berisi data menu lengkap
+      items: slots.map((slot) => ({
+        day: slot.day,
+        mealTime: slot.mealTime,
+        selectedMenu: {
+          menuId: slot.selectedMenu.menuId,
+          namaMenu: slot.selectedMenu.namaMenu,
+          harga: slot.selectedMenu.harga,
+          fotoUrl: slot.selectedMenu.fotoUrl,
+          restaurantId: slot.selectedMenu.restaurantId,
+        },
+      })),
     };
-    await db.collection("orders").doc(orderId).set(orderPayload);
+    await orderRef.set(orderPayload);
 
     // 2. Siapkan parameter Midtrans
     const parameter = {
@@ -82,7 +155,7 @@ app.post("/createTransaction", async (req, res) => {
     const paymentUrl = transaction.redirect_url;
 
     // 4. Update order di Firestore
-    await db.collection("orders").doc(orderId).update({
+    await orderRef.update({
       paymentUrl: paymentUrl,
     });
 
@@ -96,7 +169,7 @@ app.post("/createTransaction", async (req, res) => {
 
 /**
  * =================================================================
- * ENDPOINT 2: paymentHandler (WEBHOOK - Dipanggil oleh Midtrans)
+ * ENDPOINT 2: paymentHandler (WEBHOOK - Dimodifikasi)
  * =================================================================
  */
 app.post("/paymentHandler", async (req, res) => {
@@ -114,20 +187,40 @@ app.post("/paymentHandler", async (req, res) => {
       `Notifikasi untuk Order ID: ${orderId}, Status: ${transactionStatus}`,
     );
 
-    const orderRef = db.collection("orders").doc(orderId);
+    // Ambil referensi order dari 'pending_payments'
+    const orderRef = db.collection("pending_payments").doc(orderId);
+    const orderDoc = await orderRef.get();
 
+    if (!orderDoc.exists) {
+      throw new Error(`Dokumen order ${orderId} tidak ditemukan.`);
+    }
+    
+    const orderData = orderDoc.data();
+
+    // Cek status transaksi
     if (transactionStatus === "capture" || transactionStatus === "settlement") {
       if (fraudStatus === "accept") {
+        
+        // --- [LOGIKA MINGGU 6 DIMULAI DI SINI] ---
+        
+        // 1. Update status order 'pending_payments' menjadi 'paid'
         await orderRef.update({
           status: "paid",
           paymentDetails: statusResponse,
         });
+
+        // 2. Panggil fungsi baru untuk generate pesanan harian
+        await generateDailyOrders(orderId, orderData);
+        
+        // --- [LOGIKA MINGGU 6 SELESAI] ---
+
       }
     } else if (
       transactionStatus === "cancel" ||
       transactionStatus === "deny" ||
       transactionStatus === "expire"
     ) {
+      // Pembayaran gagal atau dibatalkan
       await orderRef.update({
         status: "failed",
         paymentDetails: statusResponse,
@@ -152,5 +245,4 @@ app.listen(PORT, () => {
   console.log(`Server katering berjalan di port ${PORT}`);
 });
 
-// Kita export 'app' agar Vercel bisa menggunakannya
 module.exports = app;
