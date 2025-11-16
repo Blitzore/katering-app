@@ -14,6 +14,7 @@ import 'screens/home_placeholder.dart';
 import 'screens/admin/admin_dashboard_screen.dart';
 import 'screens/admin/verification_list_screen.dart';
 import 'screens/customer/cart_screen.dart';
+import 'screens/customer/payment_success_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -116,7 +117,9 @@ class MyApp extends StatelessWidget {
         '/admin_verification_list': (context) => const VerificationListScreen(),
         
         // Rute Pelanggan
-        '/cart': (context) => const CartScreen(), // <-- TAMBAHKAN RUTE INI
+        // Rute Pelanggan
+        '/cart': (context) => const CartScreen(),
+        '/payment_success': (context) => const PaymentSuccessScreen(),
       },
     );
   }
