@@ -38,6 +38,7 @@ class MenuModel {
   /// Konversi dari objek MenuModel ke Map (untuk ditulis ke Firestore).
   Map<String, dynamic> toJson() {
     return {
+      'menuId': menuId, // <-- [PERBAIKAN DI SINI]
       'namaMenu': namaMenu,
       'harga': harga,
       'fotoUrl': fotoUrl,

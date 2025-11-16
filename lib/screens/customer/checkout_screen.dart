@@ -35,7 +35,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Future<void> _startPayment(BuildContext context, int totalHarga) async {
     setState(() => _isLoading = true);
 
-    // Dapatkan User ID
     final user = FirebaseAuth.instance.currentUser;
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -45,30 +44,24 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       return;
     }
 
-    // --- PANGGIL BACKEND VERCEL ---
     try {
-      // ▼▼▼▼▼▼▼▼▼▼▼▼ GANTI URL DI BAWAH INI ▼▼▼▼▼▼▼▼▼▼▼▼
       // GANTI dengan URL Vercel Anda + /createTransaction
       final url = Uri.parse('https://katering-app.vercel.app/createTransaction');
-      // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
       
-      // 1. Siapkan data untuk dikirim (Body)
+      // Siapkan data untuk dikirim (Body)
       final Map<String, dynamic> dataToSend = {
-        'finalPrice': totalHarga, // Kirim total harga
-        'userId': user.uid, // Kirim User ID
+        'finalPrice': totalHarga,
+        'userId': user.uid, 
         'slots': widget.slots
             .map((slot) => {
-                  'label': slot.label,
-                  'menuId': slot.selectedMenu!.menuId,
-                  'namaMenu': slot.selectedMenu!.namaMenu,
-                  'harga': slot.selectedMenu!.harga,
-                  'restaurantId': slot.selectedMenu!.restaurantId,
-                  'fotoUrl': slot.selectedMenu!.fotoUrl,
+                  'day': slot.day,
+                  'mealTime': slot.mealTime,
+                  'selectedMenu': slot.selectedMenu!.toJson(), 
                 })
             .toList(),
       };
 
-      // 2. Kirim request POST
+      // Kirim request POST
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -76,14 +69,14 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       );
 
       if (response.statusCode == 200) {
-        // 3. Ambil URL pembayaran dari hasil
+        // Ambil URL pembayaran dari hasil
         final responseData = jsonDecode(response.body);
         final paymentUrl = responseData['paymentUrl'];
 
         if (!mounted) return;
         setState(() => _isLoading = false);
 
-        // 4. Navigasi ke WebView
+        // Navigasi ke WebView
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -97,9 +90,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       }
 
     } catch (e) {
-      // Tangani error jaringan atau server
       setState(() => _isLoading = false);
-      print(e); // Tampilkan error di console
+      print(e);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Gagal membuat transaksi: ${e.toString()}'),
@@ -113,8 +105,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Widget build(BuildContext context) {
     final currencyFormatter =
         NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0);
-    
-    // --- [DEFINISI VARIABEL ADA DI SINI] ---
     final finalPrice = _calculateFinalPrice();
 
     return Scaffold(
@@ -149,12 +139,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 ),
               ),
               // Footer Total Harga dan Tombol Bayar
-              // [VARIABEL DIGUNAKAN DI SINI]
               _buildPaymentFooter(context, currencyFormatter, finalPrice),
             ],
           ),
           
-          // Tampilkan loading overlay jika _isLoading
           if (_isLoading)
             Container(
               color: Colors.black.withOpacity(0.5),
@@ -213,8 +201,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           ),
           const SizedBox(height: 16),
           ElevatedButton(
-            // Nonaktifkan tombol saat loading
+            // --- [PERBAIKAN DI SINI] ---
+            // Menggunakan 'totalHarga' (dari parameter)
+            // bukan 'finalPrice' (yang tidak ada)
             onPressed: _isLoading ? null : () => _startPayment(context, totalHarga),
+            // --- [AKHIR PERBAIKAN] ---
             child: const Text('Bayar Sekarang'),
           ),
         ],
