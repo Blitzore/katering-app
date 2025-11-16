@@ -2,7 +2,9 @@
 
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:provider/provider.dart'; // Import Provider
 import 'firebase_options.dart';
+import 'providers/cart_provider.dart'; // Import CartProvider
 
 // Import halaman
 import 'screens/auth/login_screen.dart';
@@ -11,13 +13,21 @@ import 'screens/auth_wrapper.dart';
 import 'screens/home_placeholder.dart';
 import 'screens/admin/admin_dashboard_screen.dart';
 import 'screens/admin/verification_list_screen.dart';
+import 'screens/customer/cart_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
-  runApp(const MyApp());
+  
+  // Bungkus MyApp dengan Provider
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => CartProvider(),
+      child: const MyApp(),
+    ),
+  );
 }
 
 class MyApp extends StatelessWidget {
@@ -104,6 +114,9 @@ class MyApp extends StatelessWidget {
         // Rute Admin
         '/admin_dashboard': (context) => const AdminDashboardScreen(),
         '/admin_verification_list': (context) => const VerificationListScreen(),
+        
+        // Rute Pelanggan
+        '/cart': (context) => const CartScreen(), // <-- TAMBAHKAN RUTE INI
       },
     );
   }

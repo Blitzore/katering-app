@@ -7,7 +7,6 @@ import '../models/menu_model.dart';
 /// Service untuk menangani logika bisnis terkait Restoran (khususnya Menu).
 class RestaurantService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  // Pastikan 'drdfrxobm' dan 'katering_app' sesuai dengan pengaturan Anda
   final _cloudinary =
       CloudinaryPublic('drdfrxobm', 'katering_app', cache: false);
 
@@ -57,9 +56,11 @@ class RestaurantService {
         harga: harga,
         fotoUrl: fotoUrl,
         isAvailable: isAvailable,
+        restaurantId: restoId,
+        statusResto: 'verified', // Menu baru otomatis verified (resto sudah verified)
       );
 
-      // 4. Tulis data ke Firestore menggunakan toJson
+      // 4. Tulis data ke Firestore
       await menuDocRef.set(newMenu.toJson());
     } catch (e) {
       print('Error adding menu: $e');
@@ -76,6 +77,7 @@ class RestaurantService {
     required bool isAvailable,
     String? existingFotoUrl, // URL foto lama
     File? newImageFile, // Gambar baru (opsional)
+    String? statusResto, // Status lama
   }) async {
     try {
       String fotoUrl = existingFotoUrl ?? '';
@@ -85,23 +87,24 @@ class RestaurantService {
         fotoUrl = await _uploadMenuImage(newImageFile, menuId);
       }
 
-      // --- PERBAIKAN (MENGHILANGKAN DUPLIKASI) ---
-      // 2. Buat objek MenuModel (sama seperti addMenu)
+      // 2. Buat objek MenuModel yang sudah diupdate
       final updatedMenu = MenuModel(
         menuId: menuId,
         namaMenu: namaMenu,
         harga: harga,
         fotoUrl: fotoUrl, // URL baru atau URL lama
         isAvailable: isAvailable,
+        restaurantId: restoId,
+        statusResto: statusResto ?? 'verified', // Pertahankan status lama
       );
 
-      // 3. Update data di Firestore menggunakan toJson
+      // 3. Update data di Firestore
       await _firestore
           .collection('restaurants')
           .doc(restoId)
           .collection('menus')
           .doc(menuId)
-          .update(updatedMenu.toJson()); // <-- Menggunakan .toJson()
+          .update(updatedMenu.toJson());
           
     } catch (e) {
       print('Error updating menu: $e');

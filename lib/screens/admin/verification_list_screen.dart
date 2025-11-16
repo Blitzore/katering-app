@@ -5,7 +5,7 @@ import 'verification_detail_screen.dart'; // Import halaman detail
 
 /// Menampilkan daftar mitra (restoran & driver) yang statusnya 'pending'.
 class VerificationListScreen extends StatelessWidget {
-  const VerificationListScreen({Key? key}) : super(key: key);
+  const VerificationListScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -38,8 +38,7 @@ class VerificationListScreen extends StatelessWidget {
 class _PartnerList extends StatelessWidget {
   final String collectionName;
 
-  const _PartnerList({Key? key, required this.collectionName})
-      : super(key: key);
+  const _PartnerList({super.key, required this.collectionName});
 
   @override
   Widget build(BuildContext context) {

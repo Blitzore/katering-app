@@ -7,8 +7,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'auth/login_screen.dart';
 import 'onboarding/pending_verification_screen.dart';
 import 'home_placeholder.dart';
-import 'admin/admin_dashboard_screen.dart'; // Import untuk Admin
-import 'restaurant/restaurant_dashboard.dart'; // Import untuk Restoran
+import 'admin/admin_dashboard_screen.dart';
+import 'restaurant/restaurant_dashboard.dart';
+import 'customer/customer_home_screen.dart'; // Import halaman baru
 
 /// Widget [AuthWrapper] adalah "Penjaga Gerbang" utama aplikasi.
 ///
@@ -83,21 +84,19 @@ class RoleBasedRedirect extends StatelessWidget {
           case 'admin':
             return const AdminDashboardScreen();
           case 'pelanggan':
-            return const HomePlaceholder();
+            return const CustomerHomeScreen(); // <-- DIUBAH
           case 'restoran':
-            // Jika restoran, cek status pendaftarannya di koleksi 'restaurants'
             return _CheckPartnerStatus(
               uid: user.uid,
               collection: 'restaurants',
-              homePage: const RestaurantDashboard(), // <-- DIUBAH
+              homePage: const RestaurantDashboard(), 
               role: role,
             );
           case 'driver':
-            // Jika driver, cek status pendaftarannya di koleksi 'drivers'
             return _CheckPartnerStatus(
               uid: user.uid,
               collection: 'drivers',
-              homePage: const HomePlaceholder(), // Nanti jadi DriverDashboard
+              homePage: const HomePlaceholder(), 
               role: role,
             );
           default:
@@ -138,8 +137,6 @@ class _CheckPartnerStatus extends StatelessWidget {
               body: Center(child: CircularProgressIndicator()));
         }
 
-        // Jika data mitra (restaurants/drivers) belum ada,
-        // tetap tampilkan loading. Stream akan update saat data selesai ditulis.
         if (!partnerDocSnapshot.hasData || !partnerDocSnapshot.data!.exists) {
           return const Scaffold(
               body: Center(child: CircularProgressIndicator()));
@@ -147,7 +144,6 @@ class _CheckPartnerStatus extends StatelessWidget {
 
         final data = partnerDocSnapshot.data!.data() as Map<String, dynamic>;
 
-        // Jika data status belum tertulis (race condition)
         if (data['status'] == null) {
           return const Scaffold(
               body: Center(child: CircularProgressIndicator()));
@@ -161,7 +157,7 @@ class _CheckPartnerStatus extends StatelessWidget {
         }
 
         if (status == 'verified') {
-          return homePage; // <-- Ini akan mengarah ke RestaurantDashboard
+          return homePage;
         }
 
         // Default (misal: 'ditolak' atau status lain)
