@@ -1,8 +1,11 @@
 // File: lib/screens/customer/checkout_screen.dart
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // Untuk ambil User ID
+import 'package:http/http.dart' as http; // Import HTTP
+import 'dart:convert'; // Import untuk jsonEncode/Decode
 import '../../models/subscription_slot.dart';
-import 'payment_webview_screen.dart'; // Import WebView
+import 'payment_webview_screen.dart'; 
 
 /// Halaman Ringkasan Pesanan (Checkout).
 /// Menampilkan semua slot yang dipilih dan total harga final.
@@ -22,6 +25,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   int _calculateFinalPrice() {
     int total = 0;
     for (var slot in widget.slots) {
+      // selectedMenu tidak mungkin null karena dicek di halaman sebelumnya
       total += slot.selectedMenu!.harga;
     }
     return total;
@@ -30,34 +34,77 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   /// Memulai proses pembayaran
   Future<void> _startPayment(BuildContext context, int finalPrice) async {
     setState(() => _isLoading = true);
-    
-    // --- DI SINI ANDA MEMANGGIL BACKEND (CLOUD FUNCTION) ---
-    // 1. Panggil Cloud Function 'createTransaction' dengan mengirim:
-    //    - finalPrice
-    //    - widget.slots (data menu yang dipilih)
-    //    - User ID
-    // 2. Cloud Function akan memanggil SDK Midtrans/Xendit
-    // 3. Cloud Function mengembalikan URL Pembayaran (paymentUrl)
-    
-    // --- SIMULASI (HAPUS INI DI PRODUKSI) ---
-    // Kita anggap backend butuh 2 detik dan mengembalikan URL sandbox
-    await Future.delayed(const Duration(seconds: 2));
-    // Ini adalah URL sandbox demo Midtrans
-    const simulatedPaymentUrl = 'https://app.sandbox.midtrans.com/snap/v3/redirection/4726e6d1-4E57-4581-8071-1E6500000000'; 
-    // --- AKHIR SIMULASI ---
 
-    if (!mounted) return;
+    // Dapatkan User ID
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Anda harus login ulang!')),
+      );
+      setState(() => _isLoading = false);
+      return;
+    }
 
-    setState(() => _isLoading = false);
+    // --- PANGGIL BACKEND VERCEL ---
+    try {
+      // ▼▼▼▼▼▼▼▼▼▼▼▼ GANTI URL DI BAWAH INI ▼▼▼▼▼▼▼▼▼▼▼▼
+      // GANTI dengan URL Vercel Anda + /createTransaction
+      final url = Uri.parse('https://katering-app.vercel.app/createTransaction');
+      // ▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲▲
+      
+      // 1. Siapkan data untuk dikirim (Body)
+      final Map<String, dynamic> dataToSend = {
+        'finalPrice': finalPrice,
+        'userId': user.uid, // Kirim User ID
+        'slots': widget.slots
+            .map((slot) => {
+                  'label': slot.label,
+                  'menuId': slot.selectedMenu!.menuId,
+                  'namaMenu': slot.selectedMenu!.namaMenu,
+                  'harga': slot.selectedMenu!.harga,
+                })
+            .toList(),
+      };
 
-    // Navigasi ke WebView
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            const PaymentWebViewScreen(paymentUrl: simulatedPaymentUrl),
-      ),
-    );
+      // 2. Kirim request POST
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(dataToSend),
+      );
+
+      if (response.statusCode == 200) {
+        // 3. Ambil URL pembayaran dari hasil
+        final responseData = jsonDecode(response.body);
+        final paymentUrl = responseData['paymentUrl'];
+
+        if (!mounted) return;
+        setState(() => _isLoading = false);
+
+        // 4. Navigasi ke WebView
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) =>
+                PaymentWebViewScreen(paymentUrl: paymentUrl),
+          ),
+        );
+      } else {
+        // Handle error dari server (bukan 200)
+        throw Exception('Gagal membuat transaksi: ${response.body}');
+      }
+
+    } catch (e) {
+      // Tangani error jaringan atau server
+      setState(() => _isLoading = false);
+      print(e); // Tampilkan error di console
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Gagal membuat transaksi: ${e.toString()}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override

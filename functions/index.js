@@ -1,6 +1,6 @@
 // File: functions/index.js
 
-const functions = require("firebase-functions");
+// JANGAN gunakan 'firebase-functions' lagi
 const admin = require("firebase-admin");
 const midtransClient = require("midtrans-client");
 const express = require("express");
@@ -11,12 +11,23 @@ const app = express();
 app.use(cors({origin: true}));
 app.use(express.json());
 
-// Inisialisasi Firebase Admin SDK (WAJIB pakai serviceAccountKey)
-const serviceAccount = require("./serviceAccountKey.json");
+// --- Inisialisasi Firebase Admin (WAJIB) ---
+// 1. Ambil string JSON dari Environment Variable Vercel
+const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT;
+
+if (!serviceAccountString) {
+  console.error("Variabel FIREBASE_SERVICE_ACCOUNT tidak ditemukan.");
+}
+
+// 2. Ubah string JSON kembali menjadi objek
+const serviceAccount = JSON.parse(serviceAccountString);
+
+// 3. Inisialisasi Firebase Admin SDK
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 const db = admin.firestore();
+// --- Akhir Inisialisasi Firebase ---
 
 // Inisialisasi Midtrans Snap client (Baca dari Environment Variables Vercel)
 const snap = new midtransClient.Snap({
@@ -32,11 +43,8 @@ const snap = new midtransClient.Snap({
  */
 app.post("/createTransaction", async (req, res) => {
   try {
-    // Ambil data dari body request Flutter
     const finalPrice = req.body.finalPrice;
     const slots = req.body.slots;
-    // Kita tidak bisa dapat User ID dari 'context.auth',
-    // jadi Flutter HARUS mengirimkannya.
     const userId = req.body.userId;
 
     if (!userId) {
@@ -99,7 +107,6 @@ app.post("/paymentHandler", async (req, res) => {
     const transactionStatus = statusResponse.transaction_status;
     const fraudStatus = statusResponse.fraud_status;
 
-    // Ganti console.log dengan logger yang lebih baik
     console.log(
       `Notifikasi untuk Order ID: ${orderId}, Status: ${transactionStatus}`,
     );
@@ -107,7 +114,6 @@ app.post("/paymentHandler", async (req, res) => {
     const orderRef = db.collection("orders").doc(orderId);
 
     if (transactionStatus === "capture" || transactionStatus === "settlement") {
-      // Indentasi 10 spasi
       if (fraudStatus === "accept") {
         await orderRef.update({
           status: "paid",
@@ -115,12 +121,10 @@ app.post("/paymentHandler", async (req, res) => {
         });
       }
     } else if (
-      // Indentasi 10 spasi
       transactionStatus === "cancel" ||
       transactionStatus === "deny" ||
       transactionStatus === "expire"
     ) {
-      // Pembayaran gagal atau dibatalkan
       await orderRef.update({
         status: "failed",
         paymentDetails: statusResponse,
@@ -129,7 +133,6 @@ app.post("/paymentHandler", async (req, res) => {
 
     res.status(200).send("Notifikasi berhasil diterima.");
   } catch (e) {
-    // Perbaikan max-len (dipecah)
     console.error(
       "Error menangani notifikasi:",
       e,
@@ -148,5 +151,3 @@ app.listen(PORT, () => {
 
 // Kita export 'app' agar Vercel bisa menggunakannya
 module.exports = app;
-
-// Perbaikan eol-last: Pastikan ada satu baris kosong di akhir file ini.

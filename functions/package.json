@@ -1,26 +1,28 @@
 {
   "name": "functions",
-  "description": "Cloud Functions for Firebase",
+  "description": "Backend Katering App",
+  "main": "index.js",
   "scripts": {
-    "lint-disabled": "eslint .",
+    "start": "node index.js",
+    "lint": "eslint .",
     "serve": "firebase emulators:start --only functions",
     "shell": "firebase functions:shell",
-    "start": "node index.js",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log"
   },
   "engines": {
-    "node": "22"
+    "node": "18"
   },
-  "main": "index.js",
   "dependencies": {
-    "firebase-admin": "^12.6.0",
-    "firebase-functions": "^6.0.1"
+    "cors": "^2.8.5",
+    "express": "^4.18.2",
+    "firebase-admin": "^11.11.1",
+    "firebase-functions": "^4.9.0",
+    "midtrans-client": "^1.3.1"
   },
   "devDependencies": {
-    "eslint": "^8.15.0",
-    "eslint-config-google": "^0.14.0",
-    "firebase-functions-test": "^3.1.0"
+    "eslint": "^8.9.0",
+    "eslint-config-google": "^0.14.0"
   },
   "private": true
 }
