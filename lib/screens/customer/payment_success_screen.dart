@@ -1,9 +1,25 @@
 // File: lib/screens/customer/payment_success_screen.dart
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart'; // Import Provider
+import '../../providers/cart_provider.dart'; // Import CartProvider
 
 /// Halaman yang ditampilkan setelah pembayaran berhasil.
-class PaymentSuccessScreen extends StatelessWidget {
+class PaymentSuccessScreen extends StatefulWidget { // Ubah ke StatefulWidget
   const PaymentSuccessScreen({Key? key}) : super(key: key);
+
+  @override
+  State<PaymentSuccessScreen> createState() => _PaymentSuccessScreenState();
+}
+
+class _PaymentSuccessScreenState extends State<PaymentSuccessScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Panggil clearCart() saat halaman ini pertama kali dimuat
+    // 'listen: false' karena kita tidak perlu widget ini me-rebuild
+    // jika cart berubah. Kita hanya perlu memanggil metodenya.
+    Provider.of<CartProvider>(context, listen: false).clearCart();
+  }
 
   @override
   Widget build(BuildContext context) {
