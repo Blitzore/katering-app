@@ -32,7 +32,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   }
 
   /// Memulai proses pembayaran
-  Future<void> _startPayment(BuildContext context, int finalPrice) async {
+  Future<void> _startPayment(BuildContext context, int totalHarga) async {
     setState(() => _isLoading = true);
 
     // Dapatkan User ID
@@ -54,7 +54,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       
       // 1. Siapkan data untuk dikirim (Body)
       final Map<String, dynamic> dataToSend = {
-        'finalPrice': finalPrice,
+        'finalPrice': totalHarga, // Kirim total harga
         'userId': user.uid, // Kirim User ID
         'slots': widget.slots
             .map((slot) => {
@@ -62,6 +62,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                   'menuId': slot.selectedMenu!.menuId,
                   'namaMenu': slot.selectedMenu!.namaMenu,
                   'harga': slot.selectedMenu!.harga,
+                  'restaurantId': slot.selectedMenu!.restaurantId,
+                  'fotoUrl': slot.selectedMenu!.fotoUrl,
                 })
             .toList(),
       };
@@ -111,6 +113,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Widget build(BuildContext context) {
     final currencyFormatter =
         NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0);
+    
+    // --- [DEFINISI VARIABEL ADA DI SINI] ---
     final finalPrice = _calculateFinalPrice();
 
     return Scaffold(
@@ -145,6 +149,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 ),
               ),
               // Footer Total Harga dan Tombol Bayar
+              // [VARIABEL DIGUNAKAN DI SINI]
               _buildPaymentFooter(context, currencyFormatter, finalPrice),
             ],
           ),
