@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 /// Halaman dashboard utama untuk Admin.
 /// Menampilkan menu navigasi ke fitur-fitur admin.
 class AdminDashboardScreen extends StatelessWidget {
-  const AdminDashboardScreen({Key? key}) : super(key: key);
+  const AdminDashboardScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
