@@ -1,7 +1,8 @@
 // File: lib/screens/restaurant/restaurant_dashboard.dart
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'menu_management_screen.dart'; // Halaman list menu
+import 'menu_management_screen.dart'; 
+import 'upcoming_orders_screen.dart'; // <-- IMPORT DIUBAH
 
 /// Halaman dashboard utama untuk Restoran.
 class RestaurantDashboard extends StatelessWidget {
@@ -27,6 +28,21 @@ class RestaurantDashboard extends StatelessWidget {
         children: [
           _buildDashboardCard(
             context,
+            icon: Icons.receipt_long,
+            title: 'Pesanan Mendatang', // <-- TEKS DIUBAH
+            subtitle: 'Lihat pesanan 10 hari ke depan', // <-- TEKS DIUBAH
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                    // <-- NAVIGASI DIUBAH
+                    builder: (context) => const UpcomingOrdersScreen()),
+              );
+            },
+          ),
+          const SizedBox(height: 16),
+          _buildDashboardCard(
+            context,
             icon: Icons.restaurant_menu,
             title: 'Kelola Menu',
             subtitle: 'Tambah, edit, atau hapus menu Anda',
@@ -38,7 +54,6 @@ class RestaurantDashboard extends StatelessWidget {
               );
             },
           ),
-          // Tambahkan card lain di sini (misal: Pesanan Hari Ini)
         ],
       ),
     );
