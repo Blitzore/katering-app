@@ -4,7 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloudinary_public/cloudinary_public.dart';
 import '../models/menu_model.dart';
 
-/// Service untuk menangani logika bisnis terkait Restoran (khususnya Menu).
+/// Service untuk menangani logika bisnis terkait Restoran.
 class RestaurantService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final _cloudinary =
@@ -38,18 +38,14 @@ class RestaurantService {
     required bool isAvailable,
   }) async {
     try {
-      // 1. Buat dokumen baru untuk mendapatkan ID unik
       final menuDocRef = _firestore
           .collection('restaurants')
           .doc(restoId)
           .collection('menus')
           .doc();
       final menuId = menuDocRef.id;
-
-      // 2. Upload gambar menggunakan ID unik
       final fotoUrl = await _uploadMenuImage(imageFile, menuId);
 
-      // 3. Buat objek MenuModel
       final newMenu = MenuModel(
         menuId: menuId,
         namaMenu: namaMenu,
@@ -57,10 +53,9 @@ class RestaurantService {
         fotoUrl: fotoUrl,
         isAvailable: isAvailable,
         restaurantId: restoId,
-        statusResto: 'verified', // Menu baru otomatis verified (resto sudah verified)
+        statusResto: 'verified', 
       );
 
-      // 4. Tulis data ke Firestore
       await menuDocRef.set(newMenu.toJson());
     } catch (e) {
       print('Error adding menu: $e');
@@ -75,30 +70,27 @@ class RestaurantService {
     required String namaMenu,
     required int harga,
     required bool isAvailable,
-    String? existingFotoUrl, // URL foto lama
-    File? newImageFile, // Gambar baru (opsional)
-    String? statusResto, // Status lama
+    String? existingFotoUrl,
+    File? newImageFile,
+    String? statusResto,
   }) async {
     try {
       String fotoUrl = existingFotoUrl ?? '';
       
-      // 1. Jika ada gambar baru, upload dan ganti URL-nya
       if (newImageFile != null) {
         fotoUrl = await _uploadMenuImage(newImageFile, menuId);
       }
 
-      // 2. Buat objek MenuModel yang sudah diupdate
       final updatedMenu = MenuModel(
         menuId: menuId,
         namaMenu: namaMenu,
         harga: harga,
-        fotoUrl: fotoUrl, // URL baru atau URL lama
+        fotoUrl: fotoUrl,
         isAvailable: isAvailable,
         restaurantId: restoId,
-        statusResto: statusResto ?? 'verified', // Pertahankan status lama
+        statusResto: statusResto ?? 'verified',
       );
 
-      // 3. Update data di Firestore
       await _firestore
           .collection('restaurants')
           .doc(restoId)
@@ -129,5 +121,19 @@ class RestaurantService {
       print('Error deleting menu: $e');
       throw Exception('Gagal menghapus menu.');
     }
+  }
+
+  /// [FUNGSI BARU] Memperbarui status beberapa pesanan sekaligus.
+  Future<void> updateOrderStatusBatch(List<String> orderIds, String newStatus) async {
+    if (orderIds.isEmpty) return;
+
+    final batch = _firestore.batch();
+    
+    for (final orderId in orderIds) {
+      final docRef = _firestore.collection('daily_orders').doc(orderId);
+      batch.update(docRef, {'status': newStatus});
+    }
+    
+    await batch.commit();
   }
 }

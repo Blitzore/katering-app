@@ -2,9 +2,11 @@
 
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:provider/provider.dart'; // Import Provider
+import 'package:provider/provider.dart'; 
+import 'package:intl/date_symbol_data_local.dart'; // <-- IMPORT BARU
+
 import 'firebase_options.dart';
-import 'providers/cart_provider.dart'; // Import CartProvider
+import 'providers/cart_provider.dart'; 
 
 // Import halaman
 import 'screens/auth/login_screen.dart';
@@ -18,11 +20,16 @@ import 'screens/customer/payment_success_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // --- [PERBAIKAN DI SINI] ---
+  // Inisialisasi data lokasi (untuk format tanggal 'id_ID')
+  await initializeDateFormatting('id_ID', null);
+  // --- [AKHIR PERBAIKAN] ---
+  
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
   
-  // Bungkus MyApp dengan Provider
   runApp(
     ChangeNotifierProvider(
       create: (context) => CartProvider(),
@@ -116,7 +123,6 @@ class MyApp extends StatelessWidget {
         '/admin_dashboard': (context) => const AdminDashboardScreen(),
         '/admin_verification_list': (context) => const VerificationListScreen(),
         
-        // Rute Pelanggan
         // Rute Pelanggan
         '/cart': (context) => const CartScreen(),
         '/payment_success': (context) => const PaymentSuccessScreen(),
