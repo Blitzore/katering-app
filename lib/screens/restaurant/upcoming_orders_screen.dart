@@ -56,16 +56,12 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
     });
   }
 
-  /// [PERUBAHAN] Menangani penekanan tombol "Tandai Siap Diambil"
   Future<void> _handleMarkAsReady(List<DailyOrderModel> batchOrders) async {
     setState(() => _isLoading = true);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
-    
-    // Ambil semua ID dari batch
     final orderIds = batchOrders.map((order) => order.id).toList();
 
     try {
-      // Panggil fungsi AUTO-ASSIGN baru
       await _service.autoAssignOrdersToDriver(orderIds);
       
       scaffoldMessenger.showSnackBar(
@@ -77,7 +73,6 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
     } catch (e) {
       scaffoldMessenger.showSnackBar(
         SnackBar(
-          // Tampilkan pesan error dari backend (misal: "Tidak ada driver dalam radius 5KM")
           content: Text('Gagal: ${e.toString()}'),
           backgroundColor: Colors.red,
         ),
@@ -104,7 +99,6 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snapshot.hasError) {
-                // print(snapshot.error); // Debugging
                 return const Center(
                   child: Text('Error memuat pesanan. (Pastikan Index sudah dibuat)'),
                 );
@@ -119,14 +113,11 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
               }
 
               final orders = snapshot.data!;
-              
-              // GROUPING: Kelompokkan berdasarkan tanggal + waktu makan
               final Map<String, List<DailyOrderModel>> groupedOrders = {};
               
               for (final order in orders) {
                 String dateKey = DateFormat('yyyy-MM-dd').format(order.deliveryDate.toDate());
                 String groupKey = '$dateKey-${order.mealTime}';
-                
                 if (!groupedOrders.containsKey(groupKey)) {
                   groupedOrders[groupKey] = [];
                 }

@@ -68,14 +68,11 @@ class _DriverDashboardState extends State<DriverDashboard> {
 
   Widget _buildTaskCard(DailyOrderModel task) {
     final tgl = DateFormat.yMMMd('id_ID').format(task.deliveryDate.toDate());
-    // Jika status 'assigned', berarti tugas BARU.
-    // Jika 'on_delivery', berarti SEDANG DIANTAR.
     final bool isNew = (task.status == 'assigned');
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       elevation: 3,
-      // Warna border kiri untuk membedakan status
       shape: RoundedRectangleBorder(
         side: BorderSide(
           color: isNew ? Colors.blue : Colors.orange, 

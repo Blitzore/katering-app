@@ -2,15 +2,15 @@
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloudinary_public/cloudinary_public.dart';
-import 'package:http/http.dart' as http; // Import HTTP
-import 'dart:convert'; // Import JSON
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../models/menu_model.dart';
 
 class RestaurantService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final _cloudinary = CloudinaryPublic('drdfrxobm', 'katering_app', cache: false);
 
-  // --- FUNGSI LAMA (TETAP ADA) ---
+  // --- CRUD MENU (Lama - Tetap Ada) ---
   
   Future<String> _uploadMenuImage(File imageFile, String menuId) async {
     try {
@@ -52,7 +52,7 @@ class RestaurantService {
         fotoUrl: fotoUrl,
         isAvailable: isAvailable,
         restaurantId: restoId,
-        statusResto: 'verified', 
+        statusResto: 'verified',
       );
 
       await menuDocRef.set(newMenu.toJson());
@@ -117,14 +117,12 @@ class RestaurantService {
     }
   }
 
-  // --- [FUNGSI BARU: AUTO-ASSIGN] ---
+  // --- AUTO-ASSIGN (Baru - Minggu 7) ---
 
-  /// Memanggil Backend Vercel untuk mencari driver terdekat (5KM)
-  /// dan memberikan tugas secara otomatis.
   Future<void> autoAssignOrdersToDriver(List<String> orderIds) async {
     try {
-      // GANTI URL INI DENGAN URL VERCEL ANDA
-      final url = Uri.parse('https://katering-app-backend.vercel.app/markReadyAndAutoAssign');
+      // Pastikan URL ini benar sesuai Vercel Anda
+      final url = Uri.parse('https://katering-app.vercel.app/markReadyAndAutoAssign');
       
       final response = await http.post(
         url,
@@ -133,12 +131,11 @@ class RestaurantService {
       );
 
       if (response.statusCode != 200) {
-        // Jika gagal (misal: tidak ada driver 5km), lempar error agar UI tahu
         throw Exception(response.body); 
       }
     } catch (e) {
       print('Error auto-assign: $e');
-      rethrow; // Teruskan error ke UI untuk ditampilkan di SnackBar
+      rethrow; 
     }
   }
 }
