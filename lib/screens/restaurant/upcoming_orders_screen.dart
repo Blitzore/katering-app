@@ -6,15 +6,14 @@ import 'package:intl/intl.dart';
 import '../../models/daily_order_model.dart';
 import '../../services/restaurant_service.dart'; 
 
-/// Halaman untuk menampilkan pesanan mendatang (10 hari)
-class UpcomingOrdersScreen extends StatefulWidget { // <-- NAMA CLASS DIUBAH
+class UpcomingOrdersScreen extends StatefulWidget {
   const UpcomingOrdersScreen({Key? key}) : super(key: key);
 
   @override
   State<UpcomingOrdersScreen> createState() => _UpcomingOrdersScreenState();
 }
 
-class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> { // <-- NAMA CLASS DIUBAH
+class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
   late Stream<List<DailyOrderModel>> _ordersStream;
   final String _restoId = FirebaseAuth.instance.currentUser!.uid;
   final RestaurantService _service = RestaurantService();
@@ -26,22 +25,18 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> { // <-- NA
     _ordersStream = _fetchUpcomingOrders();
   }
 
-  /// Mendapatkan timestamp awal hari (00:00:00)
   Timestamp _getStartOfToday() {
     final now = DateTime.now();
     final startOfDay = DateTime(now.year, now.month, now.day);
     return Timestamp.fromDate(startOfDay);
   }
   
-  /// Mendapatkan timestamp 10 hari dari sekarang (23:59:59)
   Timestamp _getEndOf10Days() {
     final now = DateTime.now();
-    // Tambah 9 hari ke hari ini (karena hari ini adalah hari ke-1)
     final endOf10Days = DateTime(now.year, now.month, now.day + 9, 23, 59, 59);
     return Timestamp.fromDate(endOf10Days);
   }
 
-  /// Query untuk mengambil pesanan 10 hari ke depan
   Stream<List<DailyOrderModel>> _fetchUpcomingOrders() {
     final startOfToday = _getStartOfToday();
     final endOf10Days = _getEndOf10Days(); 
@@ -61,7 +56,7 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> { // <-- NA
     });
   }
 
-  /// Menangani penekanan tombol "Tandai Siap Diambil"
+  /// [PERUBAHAN] Menangani penekanan tombol "Tandai Siap Diambil"
   Future<void> _handleMarkAsReady(List<DailyOrderModel> batchOrders) async {
     setState(() => _isLoading = true);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
@@ -70,18 +65,20 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> { // <-- NA
     final orderIds = batchOrders.map((order) => order.id).toList();
 
     try {
-      await _service.updateOrderStatusBatch(orderIds, 'ready_for_pickup');
+      // Panggil fungsi AUTO-ASSIGN baru
+      await _service.autoAssignOrdersToDriver(orderIds);
       
       scaffoldMessenger.showSnackBar(
-        SnackBar(
-          content: Text('${orderIds.length} pesanan ditandai siap diambil.'),
+        const SnackBar(
+          content: Text('Sistem sedang mencari driver terdekat... Berhasil!'),
           backgroundColor: Colors.green,
         ),
       );
     } catch (e) {
       scaffoldMessenger.showSnackBar(
         SnackBar(
-          content: Text('Error: ${e.toString()}'),
+          // Tampilkan pesan error dari backend (misal: "Tidak ada driver dalam radius 5KM")
+          content: Text('Gagal: ${e.toString()}'),
           backgroundColor: Colors.red,
         ),
       );
@@ -107,7 +104,7 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> { // <-- NA
                 return const Center(child: CircularProgressIndicator());
               }
               if (snapshot.hasError) {
-                print(snapshot.error);
+                // print(snapshot.error); // Debugging
                 return const Center(
                   child: Text('Error memuat pesanan. (Pastikan Index sudah dibuat)'),
                 );
@@ -123,11 +120,10 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> { // <-- NA
 
               final orders = snapshot.data!;
               
-              // --- [LOGIKA PENGELOMPOKAN (GROUPING) BARU] ---
+              // GROUPING: Kelompokkan berdasarkan tanggal + waktu makan
               final Map<String, List<DailyOrderModel>> groupedOrders = {};
               
               for (final order in orders) {
-                // Buat kunci unik untuk setiap batch (tanggal + waktu makan)
                 String dateKey = DateFormat('yyyy-MM-dd').format(order.deliveryDate.toDate());
                 String groupKey = '$dateKey-${order.mealTime}';
                 
@@ -137,7 +133,6 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> { // <-- NA
                 groupedOrders[groupKey]!.add(order);
               }
               
-              // Ubah Map menjadi List untuk ditampilkan
               final groupKeys = groupedOrders.keys.toList();
 
               return ListView.builder(
@@ -150,7 +145,6 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> { // <-- NA
               );
             },
           ),
-          // Tampilkan loading overlay jika sedang memproses
           if (_isLoading)
             Container(
               color: Colors.black.withOpacity(0.5),
@@ -161,19 +155,15 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> { // <-- NA
     );
   }
 
-  /// Widget untuk menampilkan SATU KELOMPOK (BATCH) pesanan
   Widget _buildBatchCard(BuildContext context, String groupKey, List<DailyOrderModel> batchOrders) {
-    // Ambil data dari item pertama (karena semuanya sama)
     final deliveryDate = batchOrders.first.deliveryDate.toDate();
     final mealTime = batchOrders.first.mealTime;
     final tglKirim = DateFormat.yMMMd('id_ID').format(deliveryDate);
 
-    // --- [LOGIKA TOMBOL HARI INI] ---
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final deliveryDay = DateTime(deliveryDate.year, deliveryDate.month, deliveryDate.day);
     
-    // Tombol hanya aktif jika tanggal pengiriman adalah hari ini
     final bool isToday = deliveryDay.isAtSameMomentAs(today);
 
     return Card(
@@ -182,19 +172,16 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> { // <-- NA
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. JUDUL BATCH
           ListTile(
             title: Text('$tglKirim - $mealTime', style: Theme.of(context).textTheme.titleLarge),
             subtitle: Text('Total ${batchOrders.length} menu untuk disiapkan.'),
             tileColor: (isToday ? Colors.green[50] : Colors.grey[100]),
           ),
           
-          // 2. DAFTAR MENU DALAM BATCH
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16.0),
             child: Column(
               children: batchOrders.map((order) {
-                // Tampilkan setiap menu dalam batch
                 return Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8.0),
                   child: Row(
@@ -206,6 +193,7 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> { // <-- NA
                           width: 40,
                           height: 40,
                           fit: BoxFit.cover,
+                          errorBuilder: (ctx, err, st) => const Icon(Icons.broken_image),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -222,13 +210,11 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> { // <-- NA
             ),
           ),
           
-          // 3. TOMBOL AKSI (BATCH)
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                // Tombol nonaktif (null) jika bukan hari ini
                 onPressed: (isToday && !_isLoading) ? () {
                   _handleMarkAsReady(batchOrders);
                 } : null,

@@ -2,16 +2,16 @@
 import 'dart:io';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloudinary_public/cloudinary_public.dart';
+import 'package:http/http.dart' as http; // Import HTTP
+import 'dart:convert'; // Import JSON
 import '../models/menu_model.dart';
 
-/// Service untuk menangani logika bisnis terkait Restoran.
 class RestaurantService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final _cloudinary =
-      CloudinaryPublic('drdfrxobm', 'katering_app', cache: false);
+  final _cloudinary = CloudinaryPublic('drdfrxobm', 'katering_app', cache: false);
 
-  /// Mengunggah gambar menu ke Cloudinary.
-  /// Mengembalikan [String] berupa URL gambar yang aman.
+  // --- FUNGSI LAMA (TETAP ADA) ---
+  
   Future<String> _uploadMenuImage(File imageFile, String menuId) async {
     try {
       CloudinaryResponse response = await _cloudinary.uploadFile(
@@ -29,7 +29,6 @@ class RestaurantService {
     }
   }
 
-  /// Menambahkan menu baru ke subkoleksi 'menus'.
   Future<void> addMenu({
     required String restoId,
     required String namaMenu,
@@ -63,7 +62,6 @@ class RestaurantService {
     }
   }
 
-  /// Memperbarui data menu yang sudah ada.
   Future<void> updateMenu({
     required String restoId,
     required String menuId,
@@ -76,7 +74,6 @@ class RestaurantService {
   }) async {
     try {
       String fotoUrl = existingFotoUrl ?? '';
-      
       if (newImageFile != null) {
         fotoUrl = await _uploadMenuImage(newImageFile, menuId);
       }
@@ -97,14 +94,12 @@ class RestaurantService {
           .collection('menus')
           .doc(menuId)
           .update(updatedMenu.toJson());
-          
     } catch (e) {
       print('Error updating menu: $e');
       throw Exception('Gagal memperbarui menu.');
     }
   }
   
-  /// Menghapus menu dari subkoleksi 'menus'.
   Future<void> deleteMenu({
     required String restoId,
     required String menuId,
@@ -116,24 +111,34 @@ class RestaurantService {
           .collection('menus')
           .doc(menuId)
           .delete();
-          
     } catch (e) {
       print('Error deleting menu: $e');
       throw Exception('Gagal menghapus menu.');
     }
   }
 
-  /// [FUNGSI BARU] Memperbarui status beberapa pesanan sekaligus.
-  Future<void> updateOrderStatusBatch(List<String> orderIds, String newStatus) async {
-    if (orderIds.isEmpty) return;
+  // --- [FUNGSI BARU: AUTO-ASSIGN] ---
 
-    final batch = _firestore.batch();
-    
-    for (final orderId in orderIds) {
-      final docRef = _firestore.collection('daily_orders').doc(orderId);
-      batch.update(docRef, {'status': newStatus});
+  /// Memanggil Backend Vercel untuk mencari driver terdekat (5KM)
+  /// dan memberikan tugas secara otomatis.
+  Future<void> autoAssignOrdersToDriver(List<String> orderIds) async {
+    try {
+      // GANTI URL INI DENGAN URL VERCEL ANDA
+      final url = Uri.parse('https://katering-app-backend.vercel.app/markReadyAndAutoAssign');
+      
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'orderIds': orderIds}),
+      );
+
+      if (response.statusCode != 200) {
+        // Jika gagal (misal: tidak ada driver 5km), lempar error agar UI tahu
+        throw Exception(response.body); 
+      }
+    } catch (e) {
+      print('Error auto-assign: $e');
+      rethrow; // Teruskan error ke UI untuk ditampilkan di SnackBar
     }
-    
-    await batch.commit();
   }
 }
