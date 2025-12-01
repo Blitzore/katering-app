@@ -11,9 +11,9 @@ class PendingVerificationScreen extends StatelessWidget {
   final String role;
 
   const PendingVerificationScreen({
-    Key? key,
+    super.key,
     required this.role,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {

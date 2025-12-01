@@ -20,7 +20,6 @@ admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
 const db = admin.firestore();
-// --- Akhir Inisialisasi Firebase ---
 
 // Inisialisasi Midtrans Snap client
 const snap = new midtransClient.Snap({
@@ -30,8 +29,82 @@ const snap = new midtransClient.Snap({
 });
 
 /**
+ * HELPER: Hitung Jarak (Haversine Formula)
+ * Mengembalikan jarak dalam Kilometer (KM)
+ */
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371; // Radius bumi dalam km
+  const dLat = (lat2 - lat1) * (Math.PI / 180);
+  const dLon = (lon2 - lon1) * (Math.PI / 180);
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(lat1 * (Math.PI / 180)) *
+      Math.cos(lat2 * (Math.PI / 180)) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const d = R * c;
+  return d;
+}
+
+/**
+ * HELPER: Generate Daily Orders
+ * Logika untuk membuat pesanan harian (Minggu 6)
+ */
+const generateDailyOrders = async (orderId, orderData) => {
+  const batch = db.batch();
+  const slots = orderData.items; 
+  const userId = orderData.userId;
+
+  const subscriptionRef = db.collection("subscriptions").doc(orderId);
+  batch.set(subscriptionRef, {
+    ...orderData,
+    status: "active", 
+  });
+
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() + 1); // Mulai besok
+  if (new Date().getHours() > 20) {
+    startDate.setDate(startDate.getDate() + 1); 
+  }
+
+  for (let i = 0; i < slots.length; i++) {
+    const slot = slots[i];
+    const menu = slot.selectedMenu; 
+
+    if (!menu || !menu.menuId) continue;
+
+    const deliveryDate = new Date(startDate);
+    deliveryDate.setDate(deliveryDate.getDate() + i);
+
+    const dailyOrderId = `${orderId}_day${i + 1}`;
+    const dailyOrderRef = db.collection("daily_orders").doc(dailyOrderId);
+
+    const dailyOrderData = {
+      subscriptionId: orderId,
+      userId: userId,
+      day: slot.day, 
+      mealTime: slot.mealTime, 
+      menuId: menu.menuId,
+      namaMenu: menu.namaMenu,
+      harga: menu.harga,
+      fotoUrl: menu.fotoUrl,
+      restaurantId: menu.restaurantId,
+      deliveryDate: admin.firestore.Timestamp.fromDate(deliveryDate),
+      status: "confirmed", 
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    
+    batch.set(dailyOrderRef, dailyOrderData);
+  }
+  
+  await batch.commit();
+  console.log(`Berhasil generate ${slots.length} pesanan untuk ${orderId}`);
+};
+
+/**
  * =================================================================
- * ENDPOINT 1: createTransaction (Dipanggil oleh Flutter)
+ * ENDPOINT 1: createTransaction
  * =================================================================
  */
 app.post("/createTransaction", async (req, res) => {
@@ -46,25 +119,15 @@ app.post("/createTransaction", async (req, res) => {
 
     const orderId = `${userId}-${Date.now()}`;
 
-    // 1. Buat order di Firestore
     const orderPayload = {
       userId: userId,
       status: "pending",
       totalPrice: finalPrice,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      
-      // --- [PERBAIKAN DI SINI] ---
-      // 'slots' dari req.body sudah memiliki format yang benar
-      // (karena Flutter mengirim `slot.selectedMenu!.toJson()`)
-      // Kita tidak perlu me-mapping-nya lagi.
-      items: slots,
-      // --- [AKHIR PERBAIKAN] ---
+      items: slots, 
     };
-    
-    // Ganti 'orders' menjadi 'pending_payments' agar sesuai dengan logika webhook
     await db.collection("pending_payments").doc(orderId).set(orderPayload);
 
-    // 2. Siapkan parameter Midtrans
     const parameter = {
       transaction_details: {
         order_id: orderId,
@@ -75,16 +138,13 @@ app.post("/createTransaction", async (req, res) => {
       },
     };
 
-    // 3. Buat transaksi Midtrans
     const transaction = await snap.createTransaction(parameter);
     const paymentUrl = transaction.redirect_url;
 
-    // 4. Update order di Firestore
     await db.collection("pending_payments").doc(orderId).update({
       paymentUrl: paymentUrl,
     });
 
-    // 5. Kembalikan URL ke Flutter
     res.status(200).send({paymentUrl: paymentUrl});
   } catch (e) {
     console.error(e);
@@ -94,7 +154,7 @@ app.post("/createTransaction", async (req, res) => {
 
 /**
  * =================================================================
- * ENDPOINT 2: paymentHandler (WEBHOOK - Dipanggil oleh Midtrans)
+ * ENDPOINT 2: paymentHandler (Webhook)
  * =================================================================
  */
 app.post("/paymentHandler", async (req, res) => {
@@ -108,31 +168,23 @@ app.post("/paymentHandler", async (req, res) => {
     const transactionStatus = statusResponse.transaction_status;
     const fraudStatus = statusResponse.fraud_status;
 
-    console.log(
-      `Notifikasi untuk Order ID: ${orderId}, Status: ${transactionStatus}`,
-    );
-
-    // Ambil referensi order dari 'pending_payments'
     const orderRef = db.collection("pending_payments").doc(orderId);
     const orderDoc = await orderRef.get();
 
     if (!orderDoc.exists) {
-      throw new Error(`Dokumen order ${orderId} tidak ditemukan.`);
+      console.warn(`Dokumen order ${orderId} tidak ditemukan.`);
+      return res.status(404).send("Order tidak ditemukan.");
     }
     
     const orderData = orderDoc.data();
 
     if (transactionStatus === "capture" || transactionStatus === "settlement") {
       if (fraudStatus === "accept") {
-        
-        // --- [LOGIKA MINGGU 6 DIMULAI DI SINI] ---
-        await generateDailyOrders(orderId, orderData); // Panggil fungsi baru
-        
         await orderRef.update({
           status: "paid",
           paymentDetails: statusResponse,
         });
-
+        await generateDailyOrders(orderId, orderData);
       }
     } else if (
       transactionStatus === "cancel" ||
@@ -147,87 +199,95 @@ app.post("/paymentHandler", async (req, res) => {
 
     res.status(200).send("Notifikasi berhasil diterima.");
   } catch (e) {
-    console.error(
-      "Error menangani notifikasi:",
-      e,
-    );
+    console.error("Error menangani notifikasi:", e);
     res.status(500).send("Error internal.");
   }
 });
 
-
 /**
  * =================================================================
- * FUNGSI BARU: generateDailyOrders
+ * ENDPOINT 3: markReadyAndAutoAssign (BARU - Minggu 7)
+ * Dipanggil oleh RESTORAN saat klik "Siap Diambil"
  * =================================================================
  */
-const generateDailyOrders = async (orderId, orderData) => {
-  const batch = db.batch();
-  const slots = orderData.items; 
-  const userId = orderData.userId;
-
-  // 1. Buat satu dokumen langganan (subscription)
-  const subscriptionRef = db.collection("subscriptions").doc(orderId);
-  batch.set(subscriptionRef, {
-    ...orderData,
-    status: "active", 
-  });
-
-  // 2. Tentukan tanggal mulai (hari ini/besok, tergantung jam)
-  const startDate = new Date();
-  if (startDate.getHours() > 17) {
-    startDate.setDate(startDate.getDate() + 1);
-  }
-
-  // 3. Loop dan buat dokumen pesanan harian (daily_orders)
-  for (let i = 0; i < slots.length; i++) {
-    const slot = slots[i];
-    
-    // [PERBAIKAN] Akses 'selectedMenu' dari 'slot'
-    const menu = slot.selectedMenu; 
-
-    if (!menu || !menu.menuId) {
-      console.error("Data menu tidak lengkap di slot:", slot);
-      // Lompati slot ini jika data menu tidak ada
-      continue; 
+app.post("/markReadyAndAutoAssign", async (req, res) => {
+  try {
+    const { orderIds } = req.body; // Array ID pesanan
+    if (!orderIds || orderIds.length === 0) {
+      return res.status(400).send("Tidak ada Order ID.");
     }
 
-    // Hitung tanggal pengiriman
-    const deliveryDate = new Date(startDate);
-    deliveryDate.setDate(deliveryDate.getDate() + i);
+    // 1. Ambil data salah satu order untuk tahu Lokasi Restoran
+    const firstOrderDoc = await db.collection("daily_orders").doc(orderIds[0]).get();
+    if (!firstOrderDoc.exists) {
+        return res.status(404).send("Order tidak ditemukan.");
+    }
+    const orderData = firstOrderDoc.data();
+    const restoId = orderData.restaurantId;
 
-    const dailyOrderId = `${orderId}_day${i + 1}`;
-    const dailyOrderRef = db.collection("daily_orders").doc(dailyOrderId);
-
-    const dailyOrderData = {
-      subscriptionId: orderId,
-      userId: userId,
-      day: slot.day, 
-      mealTime: slot.mealTime, 
-      
-      menuId: menu.menuId,
-      namaMenu: menu.namaMenu,
-      harga: menu.harga,
-      fotoUrl: menu.fotoUrl,
-      restaurantId: menu.restaurantId,
-      
-      deliveryDate: admin.firestore.Timestamp.fromDate(deliveryDate),
-      status: "confirmed",
-      createdAt: admin.firestore.FieldValue.serverTimestamp(),
-    };
+    // 2. Ambil data Lokasi Restoran
+    const restoDoc = await db.collection("restaurants").doc(restoId).get();
+    if (!restoDoc.exists) {
+        return res.status(404).send("Restoran tidak ditemukan.");
+    }
     
-    batch.set(dailyOrderRef, dailyOrderData);
+    // Default lokasi 0,0 jika belum diset
+    const restoLat = restoDoc.data().latitude || 0.0;
+    const restoLng = restoDoc.data().longitude || 0.0;
+
+    // 3. Ambil SEMUA Driver yang Verified
+    const driversSnapshot = await db.collection("drivers")
+        .where("status", "==", "verified")
+        .get();
+
+    let selectedDriverId = null;
+    let selectedDriverName = "";
+
+    // 4. Cari Driver dalam Radius 5KM
+    for (const doc of driversSnapshot.docs) {
+      const driver = doc.data();
+      const drvLat = driver.latitude || 0.0;
+      const drvLng = driver.longitude || 0.0;
+
+      const distance = calculateDistance(restoLat, restoLng, drvLat, drvLng);
+
+      if (distance <= 5.0) {
+        // Driver ditemukan!
+        selectedDriverId = doc.id;
+        selectedDriverName = driver.namaLengkap;
+        break; // Ambil driver pertama yang ketemu
+      }
+    }
+
+    if (!selectedDriverId) {
+      return res.status(404).send("Tidak ada driver dalam radius 5KM.");
+    }
+
+    // 5. Update Status Order -> 'assigned' & Simpan Driver ID
+    const batch = db.batch();
+    for (const id of orderIds) {
+      const ref = db.collection("daily_orders").doc(id);
+      batch.update(ref, {
+        status: "assigned", // Status baru untuk Driver
+        driverId: selectedDriverId,
+        driverName: selectedDriverName,
+      });
+    }
+    await batch.commit();
+
+    res.status(200).send({
+      status: "success",
+      message: `Berhasil ditugaskan ke ${selectedDriverName}`,
+      driverId: selectedDriverId,
+    });
+
+  } catch (e) {
+    console.error(e);
+    res.status(500).send(e.message);
   }
-  
-  // 4. Commit semua operasi database sekaligus
-  await batch.commit();
-  console.log(`Berhasil generate ${slots.length} pesanan untuk ${orderId}`);
-};
+});
 
-
-// ---
-// Menjalankan server Express
-// ---
+// --- Menjalankan server ---
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`Server katering berjalan di port ${PORT}`);

@@ -14,10 +14,10 @@ class DriverFormScreen extends StatefulWidget {
   final String password;
 
   const DriverFormScreen({
-    Key? key,
+    super.key,
     required this.email,
     required this.password,
-  }) : super(key: key);
+  });
 
   @override
   _DriverFormScreenState createState() => _DriverFormScreenState();

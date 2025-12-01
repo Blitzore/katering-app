@@ -7,7 +7,7 @@ import '../onboarding/resto_form_screen.dart';
 import '../onboarding/driver_form_screen.dart'; // <-- Ditambahkan
 
 class RegisterScreen extends StatefulWidget {
-  const RegisterScreen({Key? key}) : super(key: key);
+  const RegisterScreen({super.key});
 
   @override
   _RegisterScreenState createState() => _RegisterScreenState();
@@ -194,7 +194,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   ),
                   const SizedBox(height: 20),
                   DropdownButtonFormField<String>(
-                    value: _selectedRole,
+                    initialValue: _selectedRole,
                     decoration: const InputDecoration(
                       labelText: "Daftar sebagai",
                       prefixIcon: Icon(Icons.person_pin_circle_outlined),
