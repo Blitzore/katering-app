@@ -19,8 +19,11 @@ class _DriverDashboardState extends State<DriverDashboard> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.grey[100], // Background agak abu biar Card menonjol
       appBar: AppBar(
-        title: const Text('Tugas Saya'),
+        title: const Text('Tugas Pengantaran'),
+        centerTitle: false,
+        elevation: 0,
         actions: [
           IconButton(
             icon: const Icon(Icons.logout),
@@ -36,26 +39,41 @@ class _DriverDashboardState extends State<DriverDashboard> {
           }
           if (snapshot.hasError) {
             return Center(
-              child: Text(
-                'Error: ${snapshot.error}\n(Pastikan Index Driver sudah dibuat)',
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: Colors.red),
+              child: Padding(
+                padding: const EdgeInsets.all(20.0),
+                child: Text(
+                  'Error: ${snapshot.error}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.red),
+                ),
               ),
             );
           }
           if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(
-              child: Text(
-                'Belum ada tugas dari Admin/Sistem.',
-                style: TextStyle(color: Colors.grey),
+            return Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.motorcycle, size: 80, color: Colors.grey[300]),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Belum ada tugas masuk.',
+                    style: TextStyle(color: Colors.grey, fontSize: 16),
+                  ),
+                  const Text(
+                    'Istirahat dulu sambil menunggu orderan.',
+                    style: TextStyle(color: Colors.grey, fontSize: 14),
+                  ),
+                ],
               ),
             );
           }
 
           final tasks = snapshot.data!;
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
+          return ListView.separated(
+            padding: const EdgeInsets.all(20), // Padding luar lebih lega
             itemCount: tasks.length,
+            separatorBuilder: (ctx, index) => const SizedBox(height: 16),
             itemBuilder: (context, index) {
               final task = tasks[index];
               return _buildTaskCard(task);
@@ -70,63 +88,107 @@ class _DriverDashboardState extends State<DriverDashboard> {
     final tgl = DateFormat.yMMMd('id_ID').format(task.deliveryDate.toDate());
     final bool isNew = (task.status == 'assigned');
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 3,
-      shape: RoundedRectangleBorder(
-        side: BorderSide(
-          color: isNew ? Colors.blue : Colors.orange, 
-          width: 2
-        ),
-        borderRadius: BorderRadius.circular(12),
+    // Warna status
+    final statusColor = isNew ? Colors.blue[700] : Colors.orange[800];
+    final statusBgColor = isNew ? Colors.blue[50] : Colors.orange[50];
+    final statusText = isNew ? 'BARU MASUK' : 'SEDANG DIANTAR';
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // --- HEADER: Status & Tanggal ---
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
+            child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Chip(
-                  label: Text(
-                    isNew ? 'BARU MASUK' : 'SEDANG DIANTAR', 
-                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: statusBgColor,
+                    borderRadius: BorderRadius.circular(20),
                   ),
-                  backgroundColor: isNew ? Colors.blue : Colors.orange,
+                  child: Text(
+                    statusText,
+                    style: TextStyle(
+                      color: statusColor,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
                 ),
-                Text('$tgl - ${task.mealTime}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                Text(
+                  '$tgl • ${task.mealTime}',
+                  style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.w500),
+                ),
               ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              task.namaMenu, 
-              style: Theme.of(context).textTheme.titleLarge
-            ),
-            const SizedBox(height: 8),
-            const Divider(),
-            Row(
+          ),
+
+          const Divider(height: 1),
+
+          // --- BODY: Detail Pengantaran ---
+          Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Icon(Icons.store, size: 20, color: Colors.grey),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Ambil: Resto ID ...${task.restaurantId.substring(0,5)}')),
+                // Nama Menu Besar
+                Text(
+                  task.namaMenu,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black87,
+                  ),
+                ),
+                const SizedBox(height: 20),
+
+                // Alur: Resto -> Customer (Timeline View)
+                _buildLocationRow(
+                  icon: Icons.store_mall_directory,
+                  iconColor: Colors.blue,
+                  title: 'Ambil di Restoran',
+                  subtitle: 'ID: ...${task.restaurantId.substring(0, 5)}',
+                  isLast: false,
+                ),
+                _buildLocationRow(
+                  icon: Icons.person_pin_circle,
+                  iconColor: Colors.red,
+                  title: 'Antar ke Pelanggan',
+                  subtitle: 'ID: ...${task.userId.substring(0, 5)}',
+                  isLast: true,
+                ),
               ],
             ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(Icons.person, size: 20, color: Colors.grey),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Antar: Pelanggan ...${task.userId.substring(0,5)}')),
-              ],
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
+          ),
+
+          // --- FOOTER: Tombol Aksi ---
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            child: SizedBox(
               width: double.infinity,
+              height: 50,
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isNew ? Colors.blue : Colors.green,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  backgroundColor: isNew ? Theme.of(context).primaryColor : Colors.green,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 0,
                 ),
                 onPressed: () {
                   if (isNew) {
@@ -141,8 +203,70 @@ class _DriverDashboardState extends State<DriverDashboard> {
                 ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Helper widget untuk membuat tampilan timeline lokasi
+  Widget _buildLocationRow({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required bool isLast,
+  }) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Kolom Ikon & Garis
+          Column(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: iconColor.withOpacity(0.1),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: iconColor, size: 20),
+              ),
+              if (!isLast)
+                Expanded(
+                  child: Container(
+                    width: 2,
+                    color: Colors.grey[200],
+                    margin: const EdgeInsets.symmetric(vertical: 4),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(width: 16),
+          
+          // Kolom Teks
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const SizedBox(height: 6), // Menyejajarkan teks dengan ikon
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 15,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: TextStyle(color: Colors.grey[600], fontSize: 13),
+                ),
+                const SizedBox(height: 24), // Jarak ke item berikutnya
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
