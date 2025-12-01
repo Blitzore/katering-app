@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 
 /// Halaman sementara untuk pengguna yang berhasil login.
 class HomePlaceholder extends StatelessWidget {
-  const HomePlaceholder({Key? key}) : super(key: key);
+  const HomePlaceholder({super.key});
 
   @override
   Widget build(BuildContext context) {

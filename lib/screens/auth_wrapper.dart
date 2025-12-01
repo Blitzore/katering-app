@@ -4,17 +4,16 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// Import halaman-halaman utama
 import 'auth/login_screen.dart';
 import 'onboarding/pending_verification_screen.dart';
 import 'home_placeholder.dart';
 import 'admin/admin_dashboard_screen.dart';
 import 'restaurant/restaurant_dashboard.dart';
-import 'customer/customer_home_screen.dart'; // Import halaman baru
+import 'customer/customer_home_screen.dart';
+import 'driver/driver_dashboard.dart'; // <-- Import Dashboard Driver
 
 /// Widget [AuthWrapper] adalah "Penjaga Gerbang" utama aplikasi.
-///
-/// Ia mendengarkan status login [FirebaseAuth] (authStateChanges)
-/// dan mengarahkan pengguna ke halaman yang sesuai.
 class AuthWrapper extends StatelessWidget {
   const AuthWrapper({Key? key}) : super(key: key);
 
@@ -23,7 +22,7 @@ class AuthWrapper extends StatelessWidget {
     return StreamBuilder<User?>(
       stream: FirebaseAuth.instance.authStateChanges(),
       builder: (context, authSnapshot) {
-        // Menunggu koneksi...
+        // Menunggu koneksi auth...
         if (authSnapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
               body: Center(child: CircularProgressIndicator()));
@@ -42,7 +41,6 @@ class AuthWrapper extends StatelessWidget {
 }
 
 /// Widget [RoleBasedRedirect] mengecek data 'role' di koleksi 'users'
-/// untuk mengarahkan pengguna yang sudah login.
 class RoleBasedRedirect extends StatelessWidget {
   final User user;
   const RoleBasedRedirect({Key? key, required this.user}) : super(key: key);
@@ -62,8 +60,6 @@ class RoleBasedRedirect extends StatelessWidget {
               body: Center(child: CircularProgressIndicator()));
         }
 
-        // Jika data user belum ada (masih proses registrasi),
-        // tetap tampilkan loading. Stream akan update saat data selesai ditulis.
         if (!userDocSnapshot.hasData || !userDocSnapshot.data!.exists) {
           return const Scaffold(
               body: Center(child: CircularProgressIndicator()));
@@ -71,7 +67,6 @@ class RoleBasedRedirect extends StatelessWidget {
 
         final data = userDocSnapshot.data!.data() as Map<String, dynamic>;
 
-        // Jika data role belum tertulis (race condition)
         if (data['role'] == null) {
           return const Scaffold(
               body: Center(child: CircularProgressIndicator()));
@@ -84,7 +79,7 @@ class RoleBasedRedirect extends StatelessWidget {
           case 'admin':
             return const AdminDashboardScreen();
           case 'pelanggan':
-            return const CustomerHomeScreen(); // <-- DIUBAH
+            return const CustomerHomeScreen();
           case 'restoran':
             return _CheckPartnerStatus(
               uid: user.uid,
@@ -96,22 +91,22 @@ class RoleBasedRedirect extends StatelessWidget {
             return _CheckPartnerStatus(
               uid: user.uid,
               collection: 'drivers',
-              homePage: const HomePlaceholder(), 
+              // Arahkan ke Driver Dashboard
+              homePage: const DriverDashboard(), 
               role: role,
             );
           default:
-            return const LoginScreen(); // Role tidak dikenal
+            return const LoginScreen();
         }
       },
     );
   }
 }
 
-/// Widget helper untuk cek status dokumen mitra ('pending', 'verified', 'ditolak')
-/// di koleksi 'restaurants' atau 'drivers'.
+/// Widget helper untuk cek status mitra ('pending', 'verified', 'ditolak')
 class _CheckPartnerStatus extends StatelessWidget {
   final String uid;
-  final String collection; // 'restaurants' atau 'drivers'
+  final String collection;
   final Widget homePage;
   final String role; 
   
@@ -131,7 +126,6 @@ class _CheckPartnerStatus extends StatelessWidget {
           .snapshots(),
       builder: (context, partnerDocSnapshot) {
         
-        // Menunggu data mitra...
         if (partnerDocSnapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
               body: Center(child: CircularProgressIndicator()));
@@ -151,7 +145,6 @@ class _CheckPartnerStatus extends StatelessWidget {
 
         final String status = data['status'];
 
-        // Arahkan berdasarkan status pendaftaran
         if (status == 'pending') {
           return PendingVerificationScreen(role: role);
         }
@@ -160,7 +153,6 @@ class _CheckPartnerStatus extends StatelessWidget {
           return homePage;
         }
 
-        // Default (misal: 'ditolak' atau status lain)
         return Scaffold(
             body: Center(
           child: Column(
