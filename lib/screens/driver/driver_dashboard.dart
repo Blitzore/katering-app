@@ -15,135 +15,157 @@ class DriverDashboard extends StatefulWidget {
 class _DriverDashboardState extends State<DriverDashboard> {
   final DriverService _driverService = DriverService();
   final String _driverId = FirebaseAuth.instance.currentUser!.uid;
-  late Stream<List<DailyOrderModel>> _tasksStream;
 
   @override
-  void initState() {
-    super.initState();
-    _tasksStream = _driverService.getAvailableTasks();
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Dashboard Driver'),
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Tugas Baru', icon: Icon(Icons.new_releases)),
+              Tab(text: 'Sedang Diantar', icon: Icon(Icons.motorcycle)),
+            ],
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: () => FirebaseAuth.instance.signOut(),
+            )
+          ],
+        ),
+        body: TabBarView(
+          children: [
+            // Tab 1: Daftar tugas yang tersedia (ready_for_pickup)
+            _TaskList(
+              stream: _driverService.getAvailableTasks(),
+              isAvailableTab: true,
+              driverId: _driverId,
+              service: _driverService,
+            ),
+            // Tab 2: Daftar tugas yang sedang diambil driver ini (on_delivery)
+            _TaskList(
+              stream: _driverService.getActiveTasks(_driverId),
+              isAvailableTab: false,
+              driverId: _driverId,
+              service: _driverService,
+            ),
+          ],
+        ),
+      ),
+    );
   }
+}
 
-  /// Menangani tombol "Ambil Tugas"
-  Future<void> _handleAcceptTask(String orderId) async {
+class _TaskList extends StatelessWidget {
+  final Stream<List<DailyOrderModel>> stream;
+  final bool isAvailableTab;
+  final String driverId;
+  final DriverService service;
+
+  const _TaskList({
+    Key? key,
+    required this.stream,
+    required this.isAvailableTab,
+    required this.driverId,
+    required this.service,
+  }) : super(key: key);
+
+  Future<void> _handleAction(BuildContext context, String orderId) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
     try {
-      await _driverService.acceptTask(orderId, _driverId);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Tugas berhasil diambil!'), backgroundColor: Colors.green),
-      );
+      if (isAvailableTab) {
+        // Aksi: Ambil Tugas
+        await service.acceptTask(orderId, driverId);
+        scaffoldMessenger.showSnackBar(
+            const SnackBar(content: Text('Tugas diambil! Lanjut ke tab "Sedang Diantar".'), backgroundColor: Colors.green));
+      } else {
+        // Aksi: Selesai Antar
+        await service.completeTask(orderId);
+        scaffoldMessenger.showSnackBar(
+            const SnackBar(content: Text('Tugas Selesai! Saldo Anda akan bertambah.'), backgroundColor: Colors.green));
+      }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
-      );
+      scaffoldMessenger.showSnackBar(
+          SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red));
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Tugas Pengantaran'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-            onPressed: () {
-              FirebaseAuth.instance.signOut();
-            },
-          )
-        ],
-      ),
-      body: StreamBuilder<List<DailyOrderModel>>(
-        stream: _tasksStream,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          }
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(
-              child: Text(
-                'Belum ada pesanan yang siap diantar.',
-                style: TextStyle(color: Colors.grey),
+    return StreamBuilder<List<DailyOrderModel>>(
+      stream: stream,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Error (Cek Index): ${snapshot.error}'));
+        }
+        if (!snapshot.hasData || snapshot.data!.isEmpty) {
+          return Center(
+            child: Text(
+              isAvailableTab
+                  ? 'Tidak ada tugas baru saat ini.'
+                  : 'Anda sedang tidak mengantar pesanan.',
+              style: const TextStyle(color: Colors.grey),
+            ),
+          );
+        }
+
+        final tasks = snapshot.data!;
+
+        return ListView.builder(
+          padding: const EdgeInsets.all(16),
+          itemCount: tasks.length,
+          itemBuilder: (context, index) {
+            final task = tasks[index];
+            final tglKirim = DateFormat.yMMMd('id_ID').format(task.deliveryDate.toDate());
+
+            return Card(
+              margin: const EdgeInsets.only(bottom: 16),
+              elevation: 3,
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Chip(
+                          label: Text(task.mealTime, style: const TextStyle(color: Colors.white)),
+                          backgroundColor: Theme.of(context).primaryColor,
+                        ),
+                        Text(tglKirim, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Text(task.namaMenu, style: Theme.of(context).textTheme.titleLarge),
+                    const SizedBox(height: 8),
+                    // Tampilkan alamat sederhana (ID)
+                    Text('📍 Resto: ${task.restaurantId.substring(0,5)}...'),
+                    Text('🏠 Tujuan: ${task.userId.substring(0,5)}...'),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: isAvailableTab ? Theme.of(context).primaryColor : Colors.orange,
+                        ),
+                        onPressed: () => _handleAction(context, task.id),
+                        child: Text(isAvailableTab ? 'AMBIL TUGAS' : 'SELESAI ANTAR'),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             );
-          }
-
-          final tasks = snapshot.data!;
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: tasks.length,
-            itemBuilder: (context, index) {
-              final task = tasks[index];
-              return _buildTaskCard(task);
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _buildTaskCard(DailyOrderModel task) {
-    final String tglKirim = DateFormat.yMMMd('id_ID').format(task.deliveryDate.toDate());
-
-    return Card(
-      margin: const EdgeInsets.only(bottom: 16),
-      elevation: 3,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header: Waktu & Tanggal
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Chip(
-                  label: Text(task.mealTime, style: const TextStyle(color: Colors.white)),
-                  backgroundColor: Theme.of(context).primaryColor,
-                ),
-                Text(tglKirim, style: const TextStyle(fontWeight: FontWeight.bold)),
-              ],
-            ),
-            const SizedBox(height: 12),
-            
-            // Detail Menu
-            Text(
-              task.namaMenu,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
-            const SizedBox(height: 8),
-            
-            // Info Lokasi (Sederhana dulu)
-            Row(
-              children: [
-                const Icon(Icons.store, color: Colors.grey, size: 20),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Ambil di Restoran (ID: ${task.restaurantId.substring(0, 5)}...)')),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                const Icon(Icons.location_on, color: Colors.grey, size: 20),
-                const SizedBox(width: 8),
-                Expanded(child: Text('Antar ke Pelanggan (ID: ${task.userId.substring(0, 5)}...)')),
-              ],
-            ),
-            
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => _handleAcceptTask(task.id),
-                child: const Text('Ambil Tugas Ini'),
-              ),
-            ),
-          ],
-        ),
-      ),
+          },
+        );
+      },
     );
   }
 }
