@@ -30,7 +30,6 @@ const snap = new midtransClient.Snap({
 
 /**
  * HELPER: Hitung Jarak (Haversine Formula)
- * Mengembalikan jarak dalam Kilometer (KM)
  */
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371; // Radius bumi dalam km
@@ -49,7 +48,6 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 
 /**
  * HELPER: Generate Daily Orders
- * Logika untuk membuat pesanan harian (Minggu 6)
  */
 const generateDailyOrders = async (orderId, orderData) => {
   const batch = db.batch();
@@ -103,9 +101,7 @@ const generateDailyOrders = async (orderId, orderData) => {
 };
 
 /**
- * =================================================================
  * ENDPOINT 1: createTransaction
- * =================================================================
  */
 app.post("/createTransaction", async (req, res) => {
   try {
@@ -153,9 +149,7 @@ app.post("/createTransaction", async (req, res) => {
 });
 
 /**
- * =================================================================
  * ENDPOINT 2: paymentHandler (Webhook)
- * =================================================================
  */
 app.post("/paymentHandler", async (req, res) => {
   try {
@@ -205,19 +199,15 @@ app.post("/paymentHandler", async (req, res) => {
 });
 
 /**
- * =================================================================
- * ENDPOINT 3: markReadyAndAutoAssign (BARU - Minggu 7)
- * Dipanggil oleh RESTORAN saat klik "Siap Diambil"
- * =================================================================
+ * ENDPOINT 3: markReadyAndAutoAssign (AUTO DISPATCH)
  */
 app.post("/markReadyAndAutoAssign", async (req, res) => {
   try {
-    const { orderIds } = req.body; // Array ID pesanan
+    const { orderIds } = req.body; 
     if (!orderIds || orderIds.length === 0) {
       return res.status(400).send("Tidak ada Order ID.");
     }
 
-    // 1. Ambil data salah satu order untuk tahu Lokasi Restoran
     const firstOrderDoc = await db.collection("daily_orders").doc(orderIds[0]).get();
     if (!firstOrderDoc.exists) {
         return res.status(404).send("Order tidak ditemukan.");
@@ -225,17 +215,14 @@ app.post("/markReadyAndAutoAssign", async (req, res) => {
     const orderData = firstOrderDoc.data();
     const restoId = orderData.restaurantId;
 
-    // 2. Ambil data Lokasi Restoran
     const restoDoc = await db.collection("restaurants").doc(restoId).get();
     if (!restoDoc.exists) {
         return res.status(404).send("Restoran tidak ditemukan.");
     }
     
-    // Default lokasi 0,0 jika belum diset
     const restoLat = restoDoc.data().latitude || 0.0;
     const restoLng = restoDoc.data().longitude || 0.0;
 
-    // 3. Ambil SEMUA Driver yang Verified
     const driversSnapshot = await db.collection("drivers")
         .where("status", "==", "verified")
         .get();
@@ -243,7 +230,6 @@ app.post("/markReadyAndAutoAssign", async (req, res) => {
     let selectedDriverId = null;
     let selectedDriverName = "";
 
-    // 4. Cari Driver dalam Radius 5KM
     for (const doc of driversSnapshot.docs) {
       const driver = doc.data();
       const drvLat = driver.latitude || 0.0;
@@ -252,10 +238,9 @@ app.post("/markReadyAndAutoAssign", async (req, res) => {
       const distance = calculateDistance(restoLat, restoLng, drvLat, drvLng);
 
       if (distance <= 5.0) {
-        // Driver ditemukan!
         selectedDriverId = doc.id;
         selectedDriverName = driver.namaLengkap;
-        break; // Ambil driver pertama yang ketemu
+        break; 
       }
     }
 
@@ -263,12 +248,11 @@ app.post("/markReadyAndAutoAssign", async (req, res) => {
       return res.status(404).send("Tidak ada driver dalam radius 5KM.");
     }
 
-    // 5. Update Status Order -> 'assigned' & Simpan Driver ID
     const batch = db.batch();
     for (const id of orderIds) {
       const ref = db.collection("daily_orders").doc(id);
       batch.update(ref, {
-        status: "assigned", // Status baru untuk Driver
+        status: "assigned", 
         driverId: selectedDriverId,
         driverName: selectedDriverName,
       });
@@ -285,6 +269,11 @@ app.post("/markReadyAndAutoAssign", async (req, res) => {
     console.error(e);
     res.status(500).send(e.message);
   }
+});
+
+// --- [TAMBAHAN BARU] Endpoint Root (Halaman Depan) ---
+app.get("/", (req, res) => {
+  res.status(200).send("Backend Katering App is running and healthy! 🚀");
 });
 
 // --- Menjalankan server ---
