@@ -6,7 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'dart:convert';
 import 'package:provider/provider.dart'; 
-import 'package:intl/intl.dart'; // Wajib untuk format angka
+import 'package:intl/intl.dart'; 
 
 import '../../models/subscription_slot.dart'; 
 import '../../services/customer_service.dart';
@@ -33,9 +33,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   
   // Variabel Lokasi & Ongkir
   LatLng? _userLocation;
-  double? _restoLat;
-  double? _restoLng;
-  double _distanceKm = 0.0;
+  
+  // Mapping ID Restoran ke Lokasi (untuk Multi-Restoran)
+  Map<String, LatLng> _restoLocations = {}; 
+  
+  double _maxDistanceKm = 0.0; // Jarak terjauh (untuk info UI)
   int _shippingCost = 0;
   String? _errorMsg;
 
@@ -46,7 +48,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   void initState() {
     super.initState();
     _calculateTotalPrice();
-    _fetchRestaurantLocation();
+    _fetchAllRestaurantLocations(); // Ambil lokasi semua restoran yang terlibat
   }
 
   void _calculateTotalPrice() {
@@ -61,41 +63,52 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     });
   }
 
-  Future<void> _fetchRestaurantLocation() async {
+  // --- 1. MENGAMBIL LOKASI SEMUA RESTORAN ---
+  Future<void> _fetchAllRestaurantLocations() async {
     if (widget.slots.isEmpty) return;
     
-    final firstSlot = widget.slots.first;
-    if (firstSlot.selectedMenu == null) return;
+    // Kumpulkan semua ID Restoran unik dari keranjang
+    final Set<String> restoIds = widget.slots
+        .where((slot) => slot.selectedMenu != null)
+        .map((slot) => slot.selectedMenu!.restaurantId)
+        .toSet();
 
-    final String restoId = firstSlot.selectedMenu!.restaurantId;
-    if (restoId.isEmpty) {
-      setState(() => _errorMsg = "ERROR DATA: ID Restoran Kosong. Hapus keranjang & pesan ulang.");
-      return;
+    if (restoIds.isEmpty) {
+        setState(() => _errorMsg = "Keranjang kosong atau data menu tidak valid.");
+        return;
     }
     
-    final resto = await _customerService.getRestaurantById(restoId);
-    
-    if (resto == null) {
-      setState(() => _errorMsg = "Data restoran hilang dari server.");
-      return;
-    }
+    Map<String, LatLng> locations = {};
+    String? failedRestoId;
 
+    // Loop setiap ID restoran untuk ambil datanya
+    for (String id in restoIds) {
+        final resto = await _customerService.getRestaurantById(id);
+        
+        // Cek validitas lokasi restoran
+        if (resto == null || (resto.latitude == 0 && resto.longitude == 0)) {
+            failedRestoId = id;
+            break; 
+        }
+        locations[id] = LatLng(resto.latitude, resto.longitude);
+    }
+    
     if (mounted) {
-      if (resto.latitude != 0 && resto.longitude != 0) {
-        setState(() {
-          _restoLat = resto.latitude;
-          _restoLng = resto.longitude;
-        });
+      if (failedRestoId != null) {
+        setState(() => _errorMsg = "Restoran (ID: $failedRestoId) belum mengatur lokasi. Tidak bisa dipesan.");
       } else {
-        setState(() => _errorMsg = "Restoran belum mengatur lokasi (Lat/Lng masih 0).");
+        setState(() {
+          _restoLocations = locations;
+          _errorMsg = null;
+        });
       }
     }
   }
 
   void _pickLocation() async {
-    if (_restoLat == null) {
+    if (_restoLocations.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Data lokasi restoran tidak valid.'))
+        const SnackBar(content: Text('Menunggu data lokasi restoran dimuat...'))
       );
       return;
     }
@@ -106,58 +119,108 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     );
 
     if (result != null && result is LatLng) {
-      _calculateShipping(result);
+      _calculateMultiRestoShipping(result);
     }
   }
 
-  // --- LOGIKA ONGKIR SUBSIDI BARU ---
-  void _calculateShipping(LatLng userLoc) {
-    if (_restoLat == null || _restoLng == null) return;
-
-    double dist = LocationUtils.calculateDistance(
-      _restoLat!, _restoLng!, 
-      userLoc.latitude, userLoc.longitude
-    );
-
-    if (dist > 5.0) {
-      setState(() {
-        _userLocation = null;
-        _distanceKm = 0;
-        _shippingCost = 0;
-        _errorMsg = "Kejauhan (${dist.toStringAsFixed(1)} KM). Max 5 KM.";
-      });
-      return;
-    }
-
-    // 1. Setting Tarif Baru
-    double ratePerKm = 5000; // Rp 5.000 per KM
-    double payableDist = dist < 1.0 ? 1.0 : dist;
-    double baseCostPerTrip = payableDist * ratePerKm; 
+  // --- 2. LOGIKA ONGKIR MULTI-RESTORAN (TIERED BARU) ---
+  void _calculateMultiRestoShipping(LatLng userLoc) {
+    if (_restoLocations.isEmpty) return;
     
-    // Minimal Rp 5.000 per jalan
-    if (baseCostPerTrip < 5000) baseCostPerTrip = 5000;
-
-    // 2. Cek Durasi Paket
-    int totalTrips = widget.slots.length;
-    int maxDay = widget.slots.last.day;
-    double totalFinalCost = 0;
-
-    if (maxDay >= 30) {
-      // 30 Hari: Cuma bayar 2x jalan
-      totalFinalCost = baseCostPerTrip * 2.0; 
-    } else if (maxDay >= 14) {
-      // 14 Hari: Cuma bayar 1.5x jalan
-      totalFinalCost = baseCostPerTrip * 1.5; 
-    } else {
-      // Eceran/Mingguan (<14 hari): Bayar Normal (Jarak x Hari x Frekuensi)
-      totalFinalCost = baseCostPerTrip * totalTrips; 
+    // Kelompokkan slot berdasarkan ID Restoran
+    // Agar kita bisa hitung ongkir per restoran (karena jaraknya beda-beda)
+    Map<String, List<SubscriptionSlot>> groupedSlots = {};
+    for (var slot in widget.slots) {
+        if (slot.selectedMenu != null) {
+          final restoId = slot.selectedMenu!.restaurantId;
+          groupedSlots.putIfAbsent(restoId, () => []).add(slot);
+        }
     }
 
+    int totalShippingCost = 0;
+    double tempMaxDistance = 0.0;
+    String? tempError;
+
+    // Loop setiap restoran untuk hitung biayanya sendiri
+    for (var entry in groupedSlots.entries) {
+        final String restoId = entry.key;
+        final List<SubscriptionSlot> slots = entry.value;
+        final LatLng restoLoc = _restoLocations[restoId]!;
+        
+        // A. Hitung Jarak
+        double dist = LocationUtils.calculateDistance(
+          restoLoc.latitude, restoLoc.longitude, 
+          userLoc.latitude, userLoc.longitude
+        );
+
+        // B. Cek Batas Maksimal 5 KM
+        if (dist > 5.0) {
+          tempError = "Salah satu restoran berjarak ${dist.toStringAsFixed(1)} KM (Max 5 KM). Pesanan ditolak.";
+          break; // Stop perhitungan jika ada yang melanggar
+        }
+
+        if (dist > tempMaxDistance) {
+            tempMaxDistance = dist;
+        }
+
+        // C. Tentukan Durasi Langganan (Max Day) untuk grup ini
+        int maxDay = 0;
+        if (slots.isNotEmpty) {
+           maxDay = slots.map((s) => s.day).reduce((a, b) => a > b ? a : b);
+        }
+
+        // D. Tentukan Harga Per Trip (Tiered Pricing Baru)
+        // Biaya Gaji Riil = Rp 5.000/titik
+        double costPerTrip = 0.0;
+        
+        if (dist < 2.0) { 
+            // Jarak < 2 KM
+            if (maxDay >= 30) {
+                costPerTrip = 4000;
+            } else if (maxDay >= 14) {
+                costPerTrip = 5000;
+            } else { 
+                costPerTrip = 6000; // 7 hari
+            }
+        } else if (dist >= 2.0 && dist < 3.0) { 
+            // Jarak 2 - 3 KM
+            if (maxDay >= 30) {
+                costPerTrip = 5000;
+            } else if (maxDay >= 14) {
+                costPerTrip = 7000;
+            } else { 
+                costPerTrip = 8000; // 7 hari
+            }
+        } else { 
+            // Jarak 3 - 5 KM
+            if (maxDay >= 30) {
+                costPerTrip = 7000;
+            } else if (maxDay >= 14) {
+                costPerTrip = 9000;
+            } else { 
+                costPerTrip = 10000; // 7 hari
+            }
+        }
+
+        // E. Total Ongkir Restoran Ini = Harga Per Trip * Jumlah Menu
+        int totalTrips = slots.length;
+        int restoShippingCost = (costPerTrip * totalTrips).ceil();
+        
+        totalShippingCost += restoShippingCost;
+    }
+    
+    // Update State UI
     setState(() {
-      _userLocation = userLoc;
-      _distanceKm = dist;
-      _shippingCost = totalFinalCost.ceil();
-      _errorMsg = null; 
+      if (tempError != null) {
+        _userLocation = null;
+        _shippingCost = 0;
+        _errorMsg = tempError;
+      } else {
+        _userLocation = userLoc;
+        _maxDistanceKm = tempMaxDistance;
+        _shippingCost = totalShippingCost;
+        _errorMsg = null;
+      }
     });
   }
 
@@ -189,6 +252,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         };
       }).toList();
 
+      // Kirim Data ke Backend
+      // Backend akan menerima 'shippingCost' total dan membaginya rata ke daily_orders
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
@@ -196,7 +261,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           'finalPrice': finalTotal,
           'userId': user.uid,
           'slots': slotsData,
-          'shippingCost': _shippingCost, // Kirim Ongkir yang sudah dihitung
+          'shippingCost': _shippingCost, // Ongkir Total Gabungan
           'userLat': _userLocation!.latitude,
           'userLng': _userLocation!.longitude,
         }),
@@ -205,8 +270,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final responseData = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
-        
-        // FIX: Hapus Keranjang
+        // Hapus Keranjang setelah sukses request
         if (mounted) {
            Provider.of<CartProvider>(context, listen: false).clearCart(); 
         }
@@ -234,7 +298,9 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     int grandTotal = _totalFoodPrice + _shippingCost;
     bool isLocationSelected = _userLocation != null;
     int maxDay = widget.slots.isNotEmpty ? widget.slots.last.day : 1;
-    double ongkirPerDay = maxDay > 0 ? _shippingCost / maxDay : 0;
+    
+    // Tampilan Ongkir rata-rata per hari (untuk info saja)
+    double ongkirPerDay = maxDay > 0 ? _shippingCost / maxDay : 0; 
 
     return Scaffold(
       appBar: AppBar(title: const Text('Konfirmasi Langganan')),
@@ -280,8 +346,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               leading: Icon(Icons.location_on, color: isLocationSelected ? Colors.green : Colors.orange),
               title: Text(isLocationSelected ? 'Lokasi Terpilih' : 'Pilih Lokasi Antar'),
               subtitle: Text(isLocationSelected 
-                  ? 'Jarak: ${_distanceKm.toStringAsFixed(1)} KM' 
-                  : 'Wajib set lokasi untuk ongkir'),
+                  ? 'Jarak Terjauh: ${_maxDistanceKm.toStringAsFixed(1)} KM' 
+                  : 'Wajib set lokasi untuk hitung ongkir'),
               trailing: const Icon(Icons.arrow_forward_ios, size: 14),
               onTap: _pickLocation,
             ),
@@ -294,7 +360,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           
           const Divider(height: 30),
 
-          // --- TAMPILAN ONGKIR SUBSIDI (PSI KOLOGIS) ---
+          // --- TAMPILAN ONGKIR (Tiered Pricing) ---
           if (_shippingCost > 0) ...[
             Container(
               padding: const EdgeInsets.all(12),
@@ -303,17 +369,27 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(color: Colors.green.withOpacity(0.3)),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text("Ongkir / Hari", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
-                  Text(
-                    currencyFormatter.format(ongkirPerDay), 
-                    style: TextStyle(
-                      color: Colors.green[800], 
-                      fontSize: 20, 
-                      fontWeight: FontWeight.bold
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text("Ongkir Rata-rata / Hari", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                      Text(
+                        currencyFormatter.format(ongkirPerDay), 
+                        style: TextStyle(
+                          color: Colors.green[800], 
+                          fontSize: 20, 
+                          fontWeight: FontWeight.bold
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  const Text(
+                    "*Harga bervariasi tergantung jarak per restoran & durasi langganan",
+                    style: TextStyle(fontSize: 10, color: Colors.grey, fontStyle: FontStyle.italic),
                   ),
                 ],
               ),
@@ -330,7 +406,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
             ),
             const SizedBox(height: 16),
           ],
-          // --- AKHIR TAMPILAN ONGKIR SUBSIDI ---
 
           _buildSummaryRow('Total Bayar', currencyFormatter.format(grandTotal), isBold: true, fontSize: 18),
           
