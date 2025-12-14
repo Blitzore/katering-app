@@ -32,7 +32,6 @@ const snap = new midtransClient.Snap({
 /**
  * ============================================================
  * HELPER 1: HITUNG JARAK (Haversine Formula)
- * Mengembalikan jarak dalam Kilometer (KM)
  * ============================================================
  */
 function calculateDistance(lat1, lon1, lat2, lon2) {
@@ -52,19 +51,17 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 /**
  * ============================================================
  * HELPER 2: LOGIKA PENCARIAN DRIVER (AUTO ASSIGN)
- * Mencari driver verified, radius 5KM, max 4 order.
- * Dipanggil otomatis saat bayar, atau manual lewat tombol.
+ * Mencari driver verified, radius 5KM, max 5 order.
  * ============================================================
  */
 async function findAndAssignDriver(orderIds) {
-  const MAX_ORDERS_PER_DRIVER = 4; // Batas beban kerja
+  const MAX_ORDERS_PER_DRIVER = 5; // <--- UPDATE: Kapasitas 5
   const MAX_RADIUS_KM = 5.0;       // Batas jarak
 
   console.log(`Mulai mencari driver untuk ${orderIds.length} pesanan...`);
 
   try {
     // A. Ambil Data Restoran (Koordinat)
-    // Kita ambil dari order pertama saja karena batch pasti dari resto yang sama
     const firstOrderDoc = await db.collection('daily_orders').doc(orderIds[0]).get();
     if (!firstOrderDoc.exists) {
         console.error("Order tidak ditemukan saat mencari driver.");
@@ -92,7 +89,7 @@ async function findAndAssignDriver(orderIds) {
             namaLengkap: d.namaLengkap || 'Driver',
             lat: d.latitude || 0, 
             lng: d.longitude || 0,
-            currentLoad: 0 // Nanti dihitung
+            currentLoad: 0 
         });
     });
 
@@ -120,7 +117,7 @@ async function findAndAssignDriver(orderIds) {
       let minDistance = 9999; 
 
       for (const driver of drivers) {
-        // FILTER 1: Cek Beban (Max 4)
+        // FILTER 1: Cek Beban (Max 5)
         if (driver.currentLoad >= MAX_ORDERS_PER_DRIVER) continue;
 
         // FILTER 2: Hitung Jarak
@@ -142,7 +139,7 @@ async function findAndAssignDriver(orderIds) {
             driverName: bestDriver.namaLengkap
         });
         
-        // Update beban di memori (agar order berikutnya di loop ini tau driver ini nambah tugas)
+        // Update beban di memori
         bestDriver.currentLoad += 1;
         assignedCount++;
       }
@@ -166,7 +163,7 @@ async function findAndAssignDriver(orderIds) {
 
 /**
  * ============================================================
- * HELPER 3: GENERATE DAILY ORDERS
+ * HELPER 3: GENERATE DAILY ORDERS (FIX ONGKIR)
  * Membuat dokumen harian setelah pembayaran lunas
  * ============================================================
  */
@@ -175,8 +172,15 @@ const generateDailyOrders = async (orderId, orderData) => {
   const slots = orderData.items; 
   const userId = orderData.userId;
   
-  // Array untuk menyimpan ID pesanan yang baru dibuat (agar bisa langsung dicari drivernya)
+  // Array untuk menyimpan ID pesanan yang baru dibuat
   let createdIds = []; 
+
+  // --- LOGIKA ONGKIR BARU ---
+  const totalShippingCost = orderData.shippingCost || 0; // Ambil total ongkir dari pending_payments
+  const totalItems = slots.length;
+  // Hitung ongkir per pesanan (pembulatan ke bawah)
+  const shippingPerItem = totalItems > 0 ? Math.floor(totalShippingCost / totalItems) : 0;
+  // --------------------------
 
   // 1. Simpan dokumen langganan
   const subscriptionRef = db.collection("subscriptions").doc(orderId);
@@ -203,7 +207,7 @@ const generateDailyOrders = async (orderId, orderData) => {
     deliveryDate.setDate(deliveryDate.getDate() + i);
 
     const dailyOrderId = `${orderId}_day${i + 1}`;
-    createdIds.push(dailyOrderId); // Simpan ID ini
+    createdIds.push(dailyOrderId);
 
     const dailyOrderRef = db.collection("daily_orders").doc(dailyOrderId);
 
@@ -222,18 +226,19 @@ const generateDailyOrders = async (orderId, orderData) => {
       
       // Status & Tanggal
       deliveryDate: admin.firestore.Timestamp.fromDate(deliveryDate),
-      status: "confirmed", // Status awal (Belum punya driver)
+      status: "confirmed", 
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      shippingCost: 0 
+      
+      // --- UPDATE PENTING: SIMPAN ONGKIR PER ITEM ---
+      shippingCost: shippingPerItem 
     };
     
     batch.set(dailyOrderRef, dailyOrderData);
   }
   
   await batch.commit();
-  console.log(`Berhasil generate ${createdIds.length} pesanan.`);
+  console.log(`Berhasil generate ${createdIds.length} pesanan dengan Ongkir @${shippingPerItem}`);
   
-  // Kembalikan daftar ID agar bisa diproses Auto-Assign
   return createdIds; 
 };
 
@@ -244,7 +249,8 @@ const generateDailyOrders = async (orderId, orderData) => {
  */
 app.post("/createTransaction", async (req, res) => {
   try {
-    const { finalPrice, slots, userId } = req.body;
+    // --- UPDATE: Terima shippingCost dari body ---
+    const { finalPrice, slots, userId, shippingCost } = req.body; 
     
     // Validasi
     if (!userId) throw new Error("User ID tidak ditemukan.");
@@ -258,6 +264,7 @@ app.post("/createTransaction", async (req, res) => {
       totalPrice: finalPrice,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       items: slots, 
+      shippingCost: shippingCost || 0, // <--- UPDATE: Simpan Ongkir
     });
 
     // Request ke Midtrans
@@ -312,8 +319,7 @@ app.post("/paymentHandler", async (req, res) => {
         const orderData = orderDoc.data();
         const newOrderIds = await generateDailyOrders(orderId, orderData);
         
-        // 3. [FITUR BARU] AUTO ASSIGN DRIVER!
-        // Langsung cari driver detik ini juga, tanpa menunggu Resto klik tombol.
+        // 3. AUTO ASSIGN DRIVER!
         if (newOrderIds.length > 0) {
             await findAndAssignDriver(newOrderIds);
         }
@@ -336,13 +342,11 @@ app.post("/paymentHandler", async (req, res) => {
 /**
  * ============================================================
  * ENDPOINT 3: Manual Retry (markReadyAndAutoAssign)
- * Opsional: Jika otomatis gagal, Resto bisa klik tombol Manual
  * ============================================================
  */
 app.post("/markReadyAndAutoAssign", async (req, res) => {
   const { orderIds } = req.body;
   
-  // Panggil fungsi helper yang sama dengan yang di webhook
   const result = await findAndAssignDriver(orderIds);
   
   if (result.success) {

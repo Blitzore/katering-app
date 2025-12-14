@@ -2,16 +2,17 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:intl/intl.dart'; // Pastikan package intl sudah ada di pubspec.yaml
+import 'package:intl/intl.dart'; 
 import '../../models/daily_order_model.dart';
 
 class RestaurantEarningsScreen extends StatelessWidget {
   const RestaurantEarningsScreen({Key? key}) : super(key: key);
 
+  // Catatan: Fungsi _buildSummaryRow sudah dihapus karena tidak digunakan di sini.
+
   @override
   Widget build(BuildContext context) {
     final String uid = FirebaseAuth.instance.currentUser!.uid;
-    // Format mata uang Rupiah
     final currencyFormat = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0);
 
     return Scaffold(
@@ -21,18 +22,40 @@ class RestaurantEarningsScreen extends StatelessWidget {
         foregroundColor: Colors.white,
       ),
       body: StreamBuilder<QuerySnapshot>(
-        // Query: Ambil pesanan milik restoran ini yang statusnya 'completed'
         stream: FirebaseFirestore.instance
             .collection('daily_orders')
             .where('restaurantId', isEqualTo: uid)
-            .where('status', isEqualTo: 'completed')
-            .orderBy('deliveryDate', descending: true)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+          
+          List<DailyOrderModel> allOrders = [];
+          if (snapshot.hasData) {
+            allOrders = snapshot.data!.docs
+                .map((doc) => DailyOrderModel.fromSnapshot(doc))
+                .toList();
+          }
+
+          // Filter Manual: Hanya ambil yang 'completed'
+          final completedOrders = allOrders
+              .where((order) => order.status == 'completed')
+              .toList();
+
+          completedOrders.sort((a, b) => b.deliveryDate.compareTo(a.deliveryDate));
+
+          // Hitung Total Pendapatan Kotor
+          int totalRevenue = 0;
+          for (var order in completedOrders) {
+            totalRevenue += order.harga;
+          }
+          
+          // Hitung Estimasi Bersih (Dipotong Komisi 15% / Sisa 85%)
+          double netIncome = totalRevenue * 0.85; 
+          double totalCommission = totalRevenue * 0.15; // Komisi Admin
+
+          if (completedOrders.isEmpty) {
             return Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -44,19 +67,6 @@ class RestaurantEarningsScreen extends StatelessWidget {
               ),
             );
           }
-
-          final orders = snapshot.data!.docs
-              .map((doc) => DailyOrderModel.fromSnapshot(doc))
-              .toList();
-
-          // Hitung Total Pendapatan (Omzet Kotor dari Harga Makanan)
-          int totalRevenue = 0;
-          for (var order in orders) {
-            totalRevenue += order.harga;
-          }
-          
-          // Hitung Estimasi Bersih (Dikurangi Komisi Admin 10%)
-          double netIncome = totalRevenue * 0.9; 
 
           return Column(
             children: [
@@ -74,7 +84,7 @@ class RestaurantEarningsScreen extends StatelessWidget {
                 ),
                 child: Column(
                   children: [
-                    const Text('Total Penjualan (Makanan)', style: TextStyle(color: Colors.white70, fontSize: 14)),
+                    const Text('Total Omzet Makanan', style: TextStyle(color: Colors.white70, fontSize: 14)),
                     const SizedBox(height: 8),
                     Text(
                       currencyFormat.format(totalRevenue),
@@ -84,11 +94,17 @@ class RestaurantEarningsScreen extends StatelessWidget {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Pesanan Selesai: ${orders.length}', style: const TextStyle(color: Colors.white)),
-                        // Info Potongan 10%
-                        Text('Est. Bersih (90%): ${currencyFormat.format(netIncome)}', 
+                        Text('Pesanan Selesai: ${completedOrders.length}', style: const TextStyle(color: Colors.white)),
+                        // Tampilkan potongan dan bersih
+                        Text('Potongan (15%): ${currencyFormat.format(totalCommission)}', 
                              style: const TextStyle(color: Colors.white70, fontSize: 12)),
                       ],
+                    ),
+                    const SizedBox(height: 4),
+                    Align(
+                      alignment: Alignment.centerRight,
+                       child: Text('Estimasi Bersih (85%): ${currencyFormat.format(netIncome)}', 
+                             style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold)),
                     )
                   ],
                 ),
@@ -98,7 +114,7 @@ class RestaurantEarningsScreen extends StatelessWidget {
                 padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 child: Align(
                   alignment: Alignment.centerLeft, 
-                  child: Text("Riwayat Transaksi", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18))
+                  child: Text("Riwayat Pembayaran Bersih", style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18))
                 ),
               ),
 
@@ -106,10 +122,11 @@ class RestaurantEarningsScreen extends StatelessWidget {
               Expanded(
                 child: ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: orders.length,
+                  itemCount: completedOrders.length,
                   itemBuilder: (context, index) {
-                    final order = orders[index];
+                    final order = completedOrders[index];
                     final tgl = DateFormat('dd MMM yyyy, HH:mm').format(order.deliveryDate.toDate());
+                    final double bersihPerOrder = order.harga * 0.85; // Bersih per order 85%
                     
                     return Card(
                       margin: const EdgeInsets.only(bottom: 10),
@@ -117,23 +134,30 @@ class RestaurantEarningsScreen extends StatelessWidget {
                       child: ListTile(
                         leading: CircleAvatar(
                           backgroundColor: Colors.green[100],
-                          child: Icon(Icons.check, color: Colors.green[800]),
+                          child: Icon(Icons.check_circle, color: Colors.green[800]),
                         ),
                         title: Text(order.namaMenu, style: const TextStyle(fontWeight: FontWeight.bold)),
                         subtitle: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(tgl),
+                            Text('Potongan Admin: ${currencyFormat.format(order.harga * 0.15)}', style: const TextStyle(color: Colors.red, fontSize: 11)),
                             if (order.proofPhotoUrl != null)
                               const Text('Bukti Foto Tersedia', style: TextStyle(color: Colors.blue, fontSize: 11)),
                           ],
                         ),
-                        trailing: Text(
-                          currencyFormat.format(order.harga),
-                          style: const TextStyle(color: Colors.green, fontWeight: FontWeight.bold, fontSize: 15),
+                        trailing: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            const Text("Diterima", style: TextStyle(fontSize: 10, color: Colors.grey)),
+                            Text(
+                              currencyFormat.format(bersihPerOrder),
+                              style: TextStyle(color: Colors.green[800], fontWeight: FontWeight.bold, fontSize: 15),
+                            ),
+                          ],
                         ),
                         onTap: () {
-                          // Fitur Tambahan: Lihat Bukti Foto jika ada
                           if (order.proofPhotoUrl != null) {
                             showDialog(
                               context: context,

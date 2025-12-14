@@ -6,12 +6,13 @@ import 'package:latlong2/latlong.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import 'dart:convert';
 import 'package:provider/provider.dart'; 
+import 'package:intl/intl.dart'; // Wajib untuk format angka
 
 import '../../models/subscription_slot.dart'; 
 import '../../services/customer_service.dart';
 import '../maps/location_picker_screen.dart';
 import '../../utils/location_utils.dart';
-import '../../providers/cart_provider.dart'; // Import CartProvider
+import '../../providers/cart_provider.dart';
 
 class CheckoutScreen extends StatefulWidget {
   final List<SubscriptionSlot> slots;
@@ -28,6 +29,7 @@ class CheckoutScreen extends StatefulWidget {
 class _CheckoutScreenState extends State<CheckoutScreen> {
   final CustomerService _customerService = CustomerService();
   bool _isLoading = false;
+  final currencyFormatter = NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0);
   
   // Variabel Lokasi & Ongkir
   LatLng? _userLocation;
@@ -108,6 +110,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
+  // --- LOGIKA ONGKIR SUBSIDI BARU ---
   void _calculateShipping(LatLng userLoc) {
     if (_restoLat == null || _restoLng == null) return;
 
@@ -126,37 +129,34 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       return;
     }
 
-    int maxDay = 0;
-    if (widget.slots.isNotEmpty) {
-      for (var slot in widget.slots) {
-        if (slot.day > maxDay) maxDay = slot.day;
-      }
-    }
-    
-    int mealsPerDay = 1;
-    if (maxDay > 0) {
-      mealsPerDay = (widget.slots.length / maxDay).ceil();
-    }
-
+    // 1. Setting Tarif Baru
+    double ratePerKm = 5000; // Rp 5.000 per KM
     double payableDist = dist < 1.0 ? 1.0 : dist;
-    double baseCostPerTrip = payableDist * 4000; 
+    double baseCostPerTrip = payableDist * ratePerKm; 
+    
+    // Minimal Rp 5.000 per jalan
+    if (baseCostPerTrip < 5000) baseCostPerTrip = 5000;
 
-    double durationMultiplier = 1.0;
-    if (maxDay <= 7) {
-      durationMultiplier = 1.0;      
-    } else if (maxDay <= 14) {
-      durationMultiplier = 1.5;      
+    // 2. Cek Durasi Paket
+    int totalTrips = widget.slots.length;
+    int maxDay = widget.slots.last.day;
+    double totalFinalCost = 0;
+
+    if (maxDay >= 30) {
+      // 30 Hari: Cuma bayar 2x jalan
+      totalFinalCost = baseCostPerTrip * 2.0; 
+    } else if (maxDay >= 14) {
+      // 14 Hari: Cuma bayar 1.5x jalan
+      totalFinalCost = baseCostPerTrip * 1.5; 
     } else {
-      durationMultiplier = 2.0;      
+      // Eceran/Mingguan (<14 hari): Bayar Normal (Jarak x Hari x Frekuensi)
+      totalFinalCost = baseCostPerTrip * totalTrips; 
     }
-
-    double totalCost = (baseCostPerTrip * durationMultiplier) * mealsPerDay;
-    int fixedCost = totalCost.ceil();
 
     setState(() {
       _userLocation = userLoc;
       _distanceKm = dist;
-      _shippingCost = fixedCost;
+      _shippingCost = totalFinalCost.ceil();
       _errorMsg = null; 
     });
   }
@@ -173,8 +173,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
     try {
       final int finalTotal = _totalFoodPrice + _shippingCost;
-      
-      // Pastikan URL Backend Anda benar
       final url = Uri.parse('https://katering-app.vercel.app/createTransaction'); 
 
       final List<Map<String, dynamic>> slotsData = widget.slots.map((slot) {
@@ -198,7 +196,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           'finalPrice': finalTotal,
           'userId': user.uid,
           'slots': slotsData,
-          'shippingCost': _shippingCost,
+          'shippingCost': _shippingCost, // Kirim Ongkir yang sudah dihitung
           'userLat': _userLocation!.latitude,
           'userLng': _userLocation!.longitude,
         }),
@@ -208,12 +206,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
       if (response.statusCode == 200) {
         
-        // --- [PERBAIKAN: Gunakan clearCart()] ---
+        // FIX: Hapus Keranjang
         if (mounted) {
-           // Panggil fungsi sesuai nama di cart_provider.dart Anda
            Provider.of<CartProvider>(context, listen: false).clearCart(); 
         }
-        // ----------------------------------------
 
         if (mounted) {
            Navigator.push(
@@ -237,6 +233,8 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   Widget build(BuildContext context) {
     int grandTotal = _totalFoodPrice + _shippingCost;
     bool isLocationSelected = _userLocation != null;
+    int maxDay = widget.slots.isNotEmpty ? widget.slots.last.day : 1;
+    double ongkirPerDay = maxDay > 0 ? _shippingCost / maxDay : 0;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Konfirmasi Langganan')),
@@ -258,7 +256,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                 leading: const Icon(Icons.restaurant, size: 20, color: Colors.grey),
                 title: Text('Hari ${slot.day} - ${slot.mealTime}'),
                 subtitle: Text(slot.selectedMenu?.namaMenu ?? '-'),
-                trailing: Text('Rp ${slot.selectedMenu?.harga ?? 0}'),
+                trailing: Text(currencyFormatter.format(slot.selectedMenu?.harga ?? 0)),
               );
             },
           ),
@@ -291,10 +289,50 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
           const SizedBox(height: 24),
 
-          _buildSummaryRow('Total Makanan', 'Rp $_totalFoodPrice'),
-          _buildSummaryRow('Ongkos Kirim', 'Rp $_shippingCost', color: Colors.green[700]),
-          const Divider(thickness: 1.5),
-          _buildSummaryRow('Total Bayar', 'Rp $grandTotal', isBold: true, fontSize: 18),
+          // --- RINGKASAN BIAYA ---
+          _buildSummaryRow('Total Makanan', currencyFormatter.format(_totalFoodPrice)),
+          
+          const Divider(height: 30),
+
+          // --- TAMPILAN ONGKIR SUBSIDI (PSI KOLOGIS) ---
+          if (_shippingCost > 0) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.green[50],
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: Colors.green.withOpacity(0.3)),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text("Ongkir / Hari", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                  Text(
+                    currencyFormatter.format(ongkirPerDay), 
+                    style: TextStyle(
+                      color: Colors.green[800], 
+                      fontSize: 20, 
+                      fontWeight: FontWeight.bold
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.only(top: 4, right: 4),
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: Text(
+                  "Total Ongkir ${maxDay} Hari: ${currencyFormatter.format(_shippingCost)}",
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          // --- AKHIR TAMPILAN ONGKIR SUBSIDI ---
+
+          _buildSummaryRow('Total Bayar', currencyFormatter.format(grandTotal), isBold: true, fontSize: 18),
           
           const SizedBox(height: 30),
           
