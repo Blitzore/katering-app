@@ -1,213 +1,407 @@
 // File: lib/screens/customer/checkout_screen.dart
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
-import 'package:firebase_auth/firebase_auth.dart'; // Untuk ambil User ID
-import 'package:http/http.dart' as http; // Import HTTP
-import 'dart:convert'; // Import untuk jsonEncode/Decode
-import '../../models/subscription_slot.dart';
-import 'payment_webview_screen.dart'; 
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:http/http.dart' as http;
+import 'package:latlong2/latlong.dart';
+import 'package:webview_flutter/webview_flutter.dart';
+import 'dart:convert';
 
-/// Halaman Ringkasan Pesanan (Checkout).
-/// Menampilkan semua slot yang dipilih dan total harga final.
+import '../../models/subscription_slot.dart'; // Import Model Slot (PENTING)
+import '../../services/customer_service.dart';
+import '../maps/location_picker_screen.dart';
+import '../../utils/location_utils.dart';
+
 class CheckoutScreen extends StatefulWidget {
+  // KITA UBAH INI: Menerima List Slot, bukan CartItems
   final List<SubscriptionSlot> slots;
 
-  const CheckoutScreen({Key? key, required this.slots}) : super(key: key);
+  const CheckoutScreen({
+    Key? key,
+    required this.slots,
+  }) : super(key: key);
 
   @override
   State<CheckoutScreen> createState() => _CheckoutScreenState();
 }
 
 class _CheckoutScreenState extends State<CheckoutScreen> {
+  final CustomerService _customerService = CustomerService();
   bool _isLoading = false;
+  
+  // Variabel Lokasi & Ongkir
+  LatLng? _userLocation;
+  double? _restoLat;
+  double? _restoLng;
+  double _distanceKm = 0.0;
+  int _shippingCost = 0;
+  String? _errorMsg;
 
-  /// Menghitung total harga final dari semua menu yang dipilih di slot.
-  int _calculateFinalPrice() {
-    int total = 0;
-    for (var slot in widget.slots) {
-      // selectedMenu tidak mungkin null karena dicek di halaman sebelumnya
-      total += slot.selectedMenu!.harga;
-    }
-    return total;
+  // Variabel Harga
+  int _totalFoodPrice = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _calculateTotalPrice();
+    _fetchRestaurantLocation();
   }
 
-  /// Memulai proses pembayaran
-  Future<void> _startPayment(BuildContext context, int totalHarga) async {
-    setState(() => _isLoading = true);
+  // Hitung total harga makanan dari slot yang dipilih
+  void _calculateTotalPrice() {
+    int total = 0;
+    for (var slot in widget.slots) {
+      if (slot.selectedMenu != null) {
+        total += slot.selectedMenu!.harga;
+      }
+    }
+    setState(() {
+      _totalFoodPrice = total;
+    });
+  }
 
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Anda harus login ulang!')),
-      );
-      setState(() => _isLoading = false);
+  // Ganti fungsi ini di checkout_screen.dart
+  Future<void> _fetchRestaurantLocation() async {
+    // 1. Cek apakah slot ada isinya
+    if (widget.slots.isEmpty) {
+      print("DEBUG FATAL: Slot kosong!");
+      return;
+    }
+    
+    // 2. Cek apakah menu dipilih
+    final firstSlot = widget.slots.first;
+    if (firstSlot.selectedMenu == null) {
+      print("DEBUG FATAL: Menu pada slot pertama NULL!");
       return;
     }
 
-    try {
-      // GANTI dengan URL Vercel Anda + /createTransaction
-      final url = Uri.parse('https://katering-app.vercel.app/createTransaction');
-      
-      // Siapkan data untuk dikirim (Body)
-      final Map<String, dynamic> dataToSend = {
-        'finalPrice': totalHarga,
-        'userId': user.uid, 
-        'slots': widget.slots
-            .map((slot) => {
-                  'day': slot.day,
-                  'mealTime': slot.mealTime,
-                  'selectedMenu': slot.selectedMenu!.toJson(), 
-                })
-            .toList(),
-      };
+    // 3. Intip ID Restoran yang dibawa menu
+    final String restoId = firstSlot.selectedMenu!.restaurantId;
+    print("DEBUG 1: ID Restoran dari Menu = '$restoId'");
 
-      // Kirim request POST
+    if (restoId.isEmpty) {
+      setState(() {
+        _errorMsg = "ERROR DATA: ID Restoran Kosong. Hapus keranjang & pesan ulang.";
+      });
+      return;
+    }
+    
+    // 4. Panggil Service
+    print("DEBUG 2: Memanggil Firebase untuk ID: $restoId...");
+    final resto = await _customerService.getRestaurantById(restoId);
+    
+    if (resto == null) {
+      print("DEBUG 3: Data Restoran TIDAK DITEMUKAN di Firebase.");
+      setState(() => _errorMsg = "Data restoran hilang dari server.");
+      return;
+    }
+
+    // 5. Intip Data Lokasi yang didapat
+    print("DEBUG 4: Data Diterima -> Nama: ${resto.namaToko}");
+    print("DEBUG 5: Latitude: ${resto.latitude} (Tipe: ${resto.latitude.runtimeType})");
+    print("DEBUG 6: Longitude: ${resto.longitude} (Tipe: ${resto.longitude.runtimeType})");
+
+    if (mounted) {
+      // Logika Penentuan
+      if (resto.latitude != 0 && resto.longitude != 0) {
+        print("DEBUG SUKSES: Lokasi Valid! Menyimpan ke state.");
+        setState(() {
+          _restoLat = resto.latitude;
+          _restoLng = resto.longitude;
+        });
+      } else {
+        print("DEBUG GAGAL: Lokasi masih 0.0 (Default).");
+        setState(() {
+          _errorMsg = "Restoran belum mengatur lokasi (Lat/Lng masih 0).";
+        });
+      }
+    }
+  }
+
+  void _pickLocation() async {
+    if (_restoLat == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Data lokasi restoran tidak valid.'))
+      );
+      return;
+    }
+
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const LocationPickerScreen()),
+    );
+
+    if (result != null && result is LatLng) {
+      _calculateShipping(result);
+    }
+  }
+
+  // --- LOGIKA ONGKIR BARU (Dynamic Duration) ---
+  void _calculateShipping(LatLng userLoc) {
+    if (_restoLat == null || _restoLng == null) return;
+
+    // 1. Hitung Jarak (KM)
+    double dist = LocationUtils.calculateDistance(
+      _restoLat!, _restoLng!, 
+      userLoc.latitude, userLoc.longitude
+    );
+
+    // 2. Validasi Maksimal 5 KM
+    if (dist > 5.0) {
+      setState(() {
+        _userLocation = null;
+        _distanceKm = 0;
+        _shippingCost = 0;
+        _errorMsg = "Kejauhan (${dist.toStringAsFixed(1)} KM). Max 5 KM.";
+      });
+      return;
+    }
+
+    // 3. Cari Durasi Langganan (Hari Terakhir)
+    // Kita cari angka 'day' paling besar di dalam list slots
+    int maxDay = 0;
+    for (var slot in widget.slots) {
+      if (slot.day > maxDay) maxDay = slot.day;
+    }
+
+    // 4. Hitung Biaya Dasar (Rp 4.000 per KM untuk 7 hari)
+    // Minimal jarak dihitung 1 KM
+    double payableDist = dist < 1.0 ? 1.0 : dist;
+    double baseCost = payableDist * 4000; 
+
+    // 5. Terapkan Multiplier Sesuai Durasi
+    double finalCost = 0;
+
+    if (maxDay <= 7) {
+      // Paket 7 Hari (atau kurang) -> Harga Normal
+      finalCost = baseCost * 1.0;
+    } else if (maxDay <= 14) {
+      // Paket 14 Hari -> Dikalikan 1.5
+      finalCost = baseCost * 1.5;
+    } else {
+      // Paket 30 Hari (atau lebih) -> Dikalikan 2
+      finalCost = baseCost * 2.0;
+    }
+
+    // Pembulatan ke atas (biar rapi tidak ada koma)
+    int fixedCost = finalCost.ceil();
+
+    setState(() {
+      _userLocation = userLoc;
+      _distanceKm = dist;
+      _shippingCost = fixedCost;
+      _errorMsg = null; 
+    });
+    
+    // Debugging (Opsional, bisa dihapus nanti)
+    print("DEBUG ONGKIR: Jarak=$dist km, Durasi=$maxDay hari, Total Ongkir=Rp $fixedCost");
+  }
+
+  Future<void> _processPayment() async {
+    if (_userLocation == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pilih lokasi pengiriman dahulu!')));
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    try {
+      final int finalTotal = _totalFoodPrice + _shippingCost;
+      final url = Uri.parse('https://katering-app.vercel.app/createTransaction'); 
+
+      // Konversi Data Slots ke JSON
+      final List<Map<String, dynamic>> slotsData = widget.slots.map((slot) {
+        return {
+          'day': slot.day,
+          'mealTime': slot.mealTime,
+          'selectedMenu': {
+            'menuId': slot.selectedMenu!.menuId,
+            'namaMenu': slot.selectedMenu!.namaMenu,
+            'harga': slot.selectedMenu!.harga,
+            'fotoUrl': slot.selectedMenu!.fotoUrl,
+            'restaurantId': slot.selectedMenu!.restaurantId,
+          }
+        };
+      }).toList();
+
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(dataToSend),
+        body: jsonEncode({
+          'finalPrice': finalTotal,
+          'userId': user.uid,
+          'slots': slotsData,
+          'shippingCost': _shippingCost,
+          'userLat': _userLocation!.latitude,
+          'userLng': _userLocation!.longitude,
+        }),
       );
+
+      final responseData = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
-        // Ambil URL pembayaran dari hasil
-        final responseData = jsonDecode(response.body);
-        final paymentUrl = responseData['paymentUrl'];
-
-        if (!mounted) return;
-        setState(() => _isLoading = false);
-
-        // Navigasi ke WebView
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) =>
-                PaymentWebViewScreen(paymentUrl: paymentUrl),
-          ),
-        );
+        if (mounted) {
+           Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => PaymentWebViewScreen(paymentUrl: responseData['paymentUrl']),
+            ),
+          );
+        }
       } else {
-        // Handle error dari server (bukan 200)
-        throw Exception('Gagal membuat transaksi: ${response.body}');
+        throw Exception('Gagal: ${responseData['error']}');
       }
-
     } catch (e) {
-      setState(() => _isLoading = false);
-      print(e);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Gagal membuat transaksi: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final currencyFormatter =
-        NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0);
-    final finalPrice = _calculateFinalPrice();
+    int grandTotal = _totalFoodPrice + _shippingCost;
+    bool isLocationSelected = _userLocation != null;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Ringkasan Pesanan'),
-      ),
-      body: Stack(
+      appBar: AppBar(title: const Text('Konfirmasi Langganan')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
         children: [
-          Column(
-            children: [
-              Expanded(
-                child: ListView.builder(
-                  padding: const EdgeInsets.all(16.0),
-                  itemCount: widget.slots.length,
-                  itemBuilder: (context, index) {
-                    final slot = widget.slots[index];
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      child: ListTile(
-                        title: Text(
-                          slot.label,
-                          style: const TextStyle(fontWeight: FontWeight.bold),
-                        ),
-                        subtitle: Text(slot.selectedMenu!.namaMenu),
-                        trailing: Text(
-                          currencyFormatter.format(slot.selectedMenu!.harga),
-                          style: const TextStyle(color: Colors.green),
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ),
-              // Footer Total Harga dan Tombol Bayar
-              _buildPaymentFooter(context, currencyFormatter, finalPrice),
-            ],
-          ),
+          // --- LIST SLOT MENU ---
+          const Text('Rincian Paket Menu', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 8),
           
-          if (_isLoading)
+          // Tampilkan list slot secara ringkas
+          ListView.builder(
+            shrinkWrap: true, // Agar bisa dalam ListView parent
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: widget.slots.length,
+            itemBuilder: (context, index) {
+              final slot = widget.slots[index];
+              return ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.restaurant, size: 20, color: Colors.grey),
+                title: Text('Hari ${slot.day} - ${slot.mealTime}'),
+                subtitle: Text(slot.selectedMenu?.namaMenu ?? '-'),
+                trailing: Text('Rp ${slot.selectedMenu?.harga ?? 0}'),
+              );
+            },
+          ),
+          const Divider(),
+          
+          // --- PENGIRIMAN ---
+          const SizedBox(height: 16),
+          const Text('Lokasi Pengiriman', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          const SizedBox(height: 8),
+          
+          if (_errorMsg != null)
             Container(
-              color: Colors.black.withOpacity(0.5),
-              child: const Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(color: Colors.white),
-                    SizedBox(height: 16),
-                    Text(
-                      'Membuat transaksi...',
-                      style: TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                  ],
-                ),
-              ),
+              padding: const EdgeInsets.all(8),
+              color: Colors.red[50],
+              child: Text(_errorMsg!, style: const TextStyle(color: Colors.red)),
             ),
+
+          Card(
+            elevation: 1,
+            color: Colors.blue[50],
+            child: ListTile(
+              leading: Icon(Icons.location_on, color: isLocationSelected ? Colors.green : Colors.orange),
+              title: Text(isLocationSelected ? 'Lokasi Terpilih' : 'Pilih Lokasi Antar'),
+              subtitle: Text(isLocationSelected 
+                  ? 'Jarak: ${_distanceKm.toStringAsFixed(1)} KM' 
+                  : 'Wajib set lokasi untuk ongkir'),
+              trailing: const Icon(Icons.arrow_forward_ios, size: 14),
+              onTap: _pickLocation,
+            ),
+          ),
+
+          const SizedBox(height: 24),
+
+          // --- RINGKASAN BIAYA ---
+          _buildSummaryRow('Total Makanan', 'Rp $_totalFoodPrice'),
+          _buildSummaryRow('Ongkos Kirim', 'Rp $_shippingCost', color: Colors.green[700]),
+          const Divider(thickness: 1.5),
+          _buildSummaryRow('Total Bayar', 'Rp $grandTotal', isBold: true, fontSize: 18),
+          
+          const SizedBox(height: 30),
+          
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: (isLocationSelected && _errorMsg == null) ? Theme.of(context).primaryColor : Colors.grey,
+              ),
+              onPressed: (isLocationSelected && _errorMsg == null && !_isLoading) 
+                  ? _processPayment 
+                  : null,
+              child: _isLoading 
+                  ? const CircularProgressIndicator(color: Colors.white)
+                  : const Text('BAYAR LANGGANAN', style: TextStyle(fontWeight: FontWeight.bold)),
+            ),
+          ),
         ],
       ),
     );
   }
 
-  /// Widget untuk footer Total dan Tombol
-  Widget _buildPaymentFooter(
-      BuildContext context, NumberFormat formatter, int totalHarga) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-      decoration: BoxDecoration(
-        color: Theme.of(context).scaffoldBackgroundColor,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 10,
-            offset: const Offset(0, -5),
-          ),
+  Widget _buildSummaryRow(String label, String value, {bool isBold = false, Color? color, double fontSize = 14}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(label, style: TextStyle(fontSize: fontSize, fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
+          Text(value, style: TextStyle(fontSize: fontSize, fontWeight: isBold ? FontWeight.bold : FontWeight.normal, color: color)),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    );
+  }
+}
+
+// WebView Pembayaran
+class PaymentWebViewScreen extends StatefulWidget {
+  final String paymentUrl;
+  const PaymentWebViewScreen({Key? key, required this.paymentUrl}) : super(key: key);
+
+  @override
+  State<PaymentWebViewScreen> createState() => _PaymentWebViewScreenState();
+}
+
+class _PaymentWebViewScreenState extends State<PaymentWebViewScreen> {
+  late final WebViewController _controller;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = WebViewController()
+      ..setJavaScriptMode(JavaScriptMode.unrestricted)
+      ..setNavigationDelegate(
+        NavigationDelegate(
+          onPageFinished: (String url) {
+            setState(() => _isLoading = false);
+            if (url.contains('payment-success') || url.contains('status_code=200')) {
+              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pembayaran Berhasil!'), backgroundColor: Colors.green));
+              Navigator.of(context).popUntil((route) => route.isFirst);
+            }
+          },
+        ),
+      )
+      ..loadRequest(Uri.parse(widget.paymentUrl));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Pembayaran')),
+      body: Stack(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Total Pembayaran',
-                style: Theme.of(context).textTheme.bodyLarge,
-              ),
-              Text(
-                formatter.format(totalHarga),
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      color: Theme.of(context).primaryColor,
-                      fontWeight: FontWeight.bold,
-                    ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            // --- [PERBAIKAN DI SINI] ---
-            // Menggunakan 'totalHarga' (dari parameter)
-            // bukan 'finalPrice' (yang tidak ada)
-            onPressed: _isLoading ? null : () => _startPayment(context, totalHarga),
-            // --- [AKHIR PERBAIKAN] ---
-            child: const Text('Bayar Sekarang'),
-          ),
+          WebViewWidget(controller: _controller),
+          if (_isLoading) const Center(child: CircularProgressIndicator()),
         ],
       ),
     );
