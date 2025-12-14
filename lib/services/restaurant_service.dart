@@ -8,9 +8,30 @@ import '../models/menu_model.dart';
 
 class RestaurantService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  // Pastikan cloud name & preset ini sesuai milik Anda
   final _cloudinary = CloudinaryPublic('drdfrxobm', 'katering_app', cache: false);
 
-  // --- CRUD MENU (Lama - Tetap Ada) ---
+  // --- [BAGIAN BARU MINGGU 8: LOKASI] ---
+
+  /// Mengupdate lokasi restoran (Latitude & Longitude)
+  Future<void> updateRestaurantLocation(String restoId, double lat, double lng) async {
+    try {
+      await _firestore.collection('restaurants').doc(restoId).update({
+        'latitude': lat,
+        'longitude': lng,
+      });
+    } catch (e) {
+      print('Error update location: $e');
+      throw Exception('Gagal memperbarui lokasi restoran.');
+    }
+  }
+  
+  /// Mengambil data profil restoran secara realtime
+  Stream<DocumentSnapshot> getRestaurantProfile(String restoId) {
+    return _firestore.collection('restaurants').doc(restoId).snapshots();
+  }
+
+  // --- [BAGIAN LAMA: CRUD MENU & AUTO ASSIGN] ---
   
   Future<String> _uploadMenuImage(File imageFile, String menuId) async {
     try {
@@ -117,8 +138,7 @@ class RestaurantService {
     }
   }
 
-  // --- AUTO-ASSIGN (Baru - Minggu 7) ---
-
+  /// Auto Assign Driver via Vercel
   Future<void> autoAssignOrdersToDriver(List<String> orderIds) async {
     try {
       // Pastikan URL ini benar sesuai Vercel Anda
