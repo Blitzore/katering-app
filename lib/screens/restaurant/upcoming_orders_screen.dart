@@ -4,7 +4,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import '../../models/daily_order_model.dart';
-import '../../services/restaurant_service.dart'; 
+import '../../services/restaurant_service.dart';
+import 'restaurant_profile_screen.dart'; // Import halaman profil baru
 
 class UpcomingOrdersScreen extends StatefulWidget {
   const UpcomingOrdersScreen({Key? key}) : super(key: key);
@@ -62,6 +63,7 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
     final orderIds = batchOrders.map((order) => order.id).toList();
 
     try {
+      // Panggil fungsi AUTO-ASSIGN
       await _service.autoAssignOrdersToDriver(orderIds);
       
       scaffoldMessenger.showSnackBar(
@@ -89,6 +91,19 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Pesanan Mendatang (10 Hari)'),
+        actions: [
+          // --- TOMBOL PROFIL BARU ---
+          IconButton(
+            icon: const Icon(Icons.person),
+            tooltip: 'Profil Restoran & Lokasi',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const RestaurantProfileScreen()),
+              );
+            },
+          )
+        ],
       ),
       body: Stack(
         children: [
@@ -113,11 +128,14 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
               }
 
               final orders = snapshot.data!;
+              
+              // GROUPING: Kelompokkan berdasarkan tanggal + waktu makan
               final Map<String, List<DailyOrderModel>> groupedOrders = {};
               
               for (final order in orders) {
                 String dateKey = DateFormat('yyyy-MM-dd').format(order.deliveryDate.toDate());
                 String groupKey = '$dateKey-${order.mealTime}';
+                
                 if (!groupedOrders.containsKey(groupKey)) {
                   groupedOrders[groupKey] = [];
                 }
