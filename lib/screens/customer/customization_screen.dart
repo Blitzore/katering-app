@@ -4,13 +4,12 @@ import 'package:provider/provider.dart';
 import '../../models/menu_model.dart';
 import '../../models/subscription_slot.dart';
 import '../../providers/cart_provider.dart';
-import 'checkout_screen.dart'; // Import halaman checkout baru
+import 'checkout_screen.dart'; // Pastikan file ini ada (lihat kode di bawah)
 
-/// Halaman untuk kustomisasi menu harian (mengisi slot).
 class CustomizationScreen extends StatefulWidget {
   final int totalDays;
   final int mealsPerDay;
-  final String selectedMealTime; // Pilihan (Siang/Malam) jika mealsPerDay=1
+  final String selectedMealTime; 
 
   const CustomizationScreen({
     Key? key,
@@ -24,43 +23,32 @@ class CustomizationScreen extends StatefulWidget {
 }
 
 class _CustomizationScreenState extends State<CustomizationScreen> {
-  /// Daftar semua slot yang harus diisi pelanggan.
   late List<SubscriptionSlot> _slots;
-
-  /// Daftar menu yang tersedia (diambil dari keranjang).
   late List<MenuModel> _menuOptions;
 
   @override
   void initState() {
     super.initState();
-    // Ambil menu dari keranjang saat halaman dibuka
     _menuOptions = Provider.of<CartProvider>(context, listen: false).items;
-    // Buat slot berdasarkan data paket
     _generateSlots();
   }
 
-  /// Membuat daftar slot berdasarkan pilihan paket
   void _generateSlots() {
     _slots = [];
     for (int day = 1; day <= widget.totalDays; day++) {
       if (widget.mealsPerDay == 1) {
-        // Gunakan waktu makan yang dipilih dari halaman keranjang
         _slots.add(SubscriptionSlot(day: day, mealTime: widget.selectedMealTime));
       } else {
-        // Jika 2x, selalu Siang dan Malam
         _slots.add(SubscriptionSlot(day: day, mealTime: 'Makan Siang'));
         _slots.add(SubscriptionSlot(day: day, mealTime: 'Makan Malam'));
       }
     }
   }
 
-  /// Cek apakah semua slot sudah terisi
   bool _areAllSlotsFilled() {
-    // Cek setiap slot, jika ada yg selectedMenu-nya null, return false
     return _slots.every((slot) => slot.selectedMenu != null);
   }
 
-  /// Menangani tombol "Lanjut ke Checkout"
   void _proceedToCheckout() {
     if (!_areAllSlotsFilled()) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -72,7 +60,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
       return;
     }
 
-    // Navigasi ke Halaman Checkout dan kirim data slot
     Navigator.push(
       context,
       MaterialPageRoute(
@@ -84,9 +71,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Kustomisasi Menu'),
-      ),
+      appBar: AppBar(title: const Text('Kustomisasi Menu')),
       body: Column(
         children: [
           Expanded(
@@ -104,7 +89,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     );
   }
 
-  /// Widget untuk satu slot (misal: "Hari 1 - Siang")
   Widget _buildSlotCard(SubscriptionSlot slot) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12.0),
@@ -114,13 +98,10 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              slot.label, // Misal: "Hari 1 - Siang"
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              slot.label, 
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
-            // Dropdown diisi dengan menu dari keranjang
             DropdownButtonFormField<MenuModel>(
               value: slot.selectedMenu,
               isExpanded: true,
@@ -132,7 +113,6 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
               items: _menuOptions.map((MenuModel menu) {
                 return DropdownMenuItem<MenuModel>(
                   value: menu,
-                  // Tampilkan nama dan harga di dropdown
                   child: Text(
                     '${menu.namaMenu} (Rp ${menu.harga})',
                     overflow: TextOverflow.ellipsis,
@@ -140,9 +120,7 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
                 );
               }).toList(),
               onChanged: (MenuModel? newValue) {
-                setState(() {
-                  slot.selectedMenu = newValue;
-                });
+                setState(() => slot.selectedMenu = newValue);
               },
             ),
           ],
@@ -151,10 +129,11 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
     );
   }
 
-  /// Widget untuk footer tombol Checkout
+  // --- BAGIAN YANG DIPERBAIKI (PADDING & SIZEBOX) ---
   Widget _buildCheckoutFooter() {
     return Container(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+      // Padding diperbesar agar tombol tidak nempel kiri-kanan
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20), 
       decoration: BoxDecoration(
         color: Theme.of(context).scaffoldBackgroundColor,
         boxShadow: [
@@ -165,15 +144,22 @@ class _CustomizationScreenState extends State<CustomizationScreen> {
           ),
         ],
       ),
-      child: ElevatedButton(
-        // Tombol hanya aktif jika semua slot sudah terisi
-        onPressed: _areAllSlotsFilled() ? _proceedToCheckout : null,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _areAllSlotsFilled()
-              ? Theme.of(context).primaryColor
-              : Colors.grey,
+      child: SafeArea(
+        child: SizedBox(
+          width: double.infinity, // Paksa lebar penuh (dikurangi padding)
+          height: 50, // Tinggi tombol konsisten
+          child: ElevatedButton(
+            onPressed: _areAllSlotsFilled() ? _proceedToCheckout : null,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _areAllSlotsFilled() ? Theme.of(context).primaryColor : Colors.grey,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)), // Sudut tumpul
+            ),
+            child: const Text(
+              'Lanjut ke Ringkasan',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ),
         ),
-        child: const Text('Lanjut ke Ringkasan'),
       ),
     );
   }

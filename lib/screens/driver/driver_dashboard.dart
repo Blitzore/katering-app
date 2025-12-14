@@ -2,7 +2,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:image_picker/image_picker.dart'; // Wajib ada
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import '../../models/daily_order_model.dart';
 import '../../services/driver_service.dart';
@@ -18,11 +18,10 @@ class _DriverDashboardState extends State<DriverDashboard> {
   final DriverService _service = DriverService();
   final String _uid = FirebaseAuth.instance.currentUser!.uid;
   
-  // --- TAMBAHAN BARU: Image Picker ---
   final ImagePicker _picker = ImagePicker();
   bool _isLoading = false;
 
-  // --- LOGIKA KAMERA (Commit 3) ---
+  // --- LOGIKA KAMERA ---
   Future<void> _handleCompleteTask(String orderId) async {
     showModalBottomSheet(
       context: context,
@@ -125,7 +124,6 @@ class _DriverDashboardState extends State<DriverDashboard> {
             },
           ),
           
-          // Loading Overlay (Saat upload foto)
           if (_isLoading)
             Container(
               color: Colors.black45,
@@ -139,12 +137,10 @@ class _DriverDashboardState extends State<DriverDashboard> {
   Widget _buildTaskCard(DailyOrderModel task) {
     final tgl = DateFormat.yMMMd('id_ID').format(task.deliveryDate.toDate());
     
-    // Status Logic
-    bool isAssigned = task.status == 'assigned';         // Baru masuk
-    bool isReady = task.status == 'ready_for_pickup';    // Siap di Resto
-    bool isOnDelivery = task.status == 'on_delivery';    // Sedang Diantar
+    bool isAssigned = task.status == 'assigned';         
+    bool isReady = task.status == 'ready_for_pickup';    
+    bool isOnDelivery = task.status == 'on_delivery';    
 
-    // Warna & Teks Dinamis
     Color statusColor;
     Color statusBgColor;
     String statusText;
@@ -174,7 +170,7 @@ class _DriverDashboardState extends State<DriverDashboard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // --- HEADER: Status & Tanggal ---
+          // --- HEADER: Status & Tanggal (FIXED) ---
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
             child: Row(
@@ -191,14 +187,24 @@ class _DriverDashboardState extends State<DriverDashboard> {
                     style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 12),
                   ),
                 ),
-                Text('$tgl • ${task.mealTime}', style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.w500)),
+                const SizedBox(width: 8), 
+                // --- PERBAIKAN DI SINI: Pakai Expanded ---
+                Expanded(
+                  child: Text(
+                    '$tgl • ${task.mealTime}', 
+                    style: TextStyle(color: Colors.grey[600], fontWeight: FontWeight.w500),
+                    textAlign: TextAlign.right,
+                    overflow: TextOverflow.ellipsis, // Agar tidak error overflow
+                    maxLines: 1,
+                  ),
+                ),
               ],
             ),
           ),
 
           const Divider(height: 1),
 
-          // --- BODY: Timeline UI (Dari Kode Lama Anda) ---
+          // --- BODY: Timeline UI (TETAP SAMA) ---
           Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -228,7 +234,7 @@ class _DriverDashboardState extends State<DriverDashboard> {
             ),
           ),
 
-          // --- FOOTER: Tombol Aksi (Logic Baru) ---
+          // --- FOOTER: Tombol Aksi ---
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
             child: SizedBox(
@@ -241,13 +247,10 @@ class _DriverDashboardState extends State<DriverDashboard> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   elevation: 0,
                 ),
-                // Tombol mati jika status 'assigned' (belum ready)
                 onPressed: isAssigned ? null : () {
                   if (isReady) {
-                    // Klik Mulai Antar
                     _service.startDelivery(task.orderId);
                   } else if (isOnDelivery) {
-                    // Klik Selesai -> BUKA KAMERA
                     _handleCompleteTask(task.orderId);
                   }
                 },
@@ -265,7 +268,6 @@ class _DriverDashboardState extends State<DriverDashboard> {
     );
   }
 
-  // --- WIDGET TIMELINE CANTIK (Dari Kode Lama Anda) ---
   Widget _buildLocationRow({
     required IconData icon,
     required Color iconColor,

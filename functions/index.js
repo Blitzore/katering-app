@@ -10,10 +10,10 @@ const app = express();
 app.use(cors({origin: true}));
 app.use(express.json());
 
-// --- Inisialisasi Firebase Admin (WAJIB) ---
+// --- 1. INISIALISASI FIREBASE ADMIN ---
 const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT;
 if (!serviceAccountString) {
-  console.error("Variabel FIREBASE_SERVICE_ACCOUNT tidak ditemukan.");
+  console.error("ERROR: Variabel FIREBASE_SERVICE_ACCOUNT tidak ditemukan.");
 }
 const serviceAccount = JSON.parse(serviceAccountString);
 
@@ -22,7 +22,7 @@ admin.initializeApp({
 });
 const db = admin.firestore();
 
-// Inisialisasi Midtrans Snap client
+// --- 2. INISIALISASI MIDTRANS ---
 const snap = new midtransClient.Snap({
   isProduction: false,
   serverKey: process.env.MIDTRANS_SERVER_KEY,
@@ -30,8 +30,10 @@ const snap = new midtransClient.Snap({
 });
 
 /**
- * HELPER: Hitung Jarak (Haversine Formula)
+ * ============================================================
+ * HELPER 1: HITUNG JARAK (Haversine Formula)
  * Mengembalikan jarak dalam Kilometer (KM)
+ * ============================================================
  */
 function calculateDistance(lat1, lon1, lat2, lon2) {
   const R = 6371; // Radius bumi dalam km
@@ -48,29 +50,149 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 }
 
 /**
- * HELPER: Generate Daily Orders
- * Logika untuk membuat pesanan harian
+ * ============================================================
+ * HELPER 2: LOGIKA PENCARIAN DRIVER (AUTO ASSIGN)
+ * Mencari driver verified, radius 5KM, max 4 order.
+ * Dipanggil otomatis saat bayar, atau manual lewat tombol.
+ * ============================================================
+ */
+async function findAndAssignDriver(orderIds) {
+  const MAX_ORDERS_PER_DRIVER = 4; // Batas beban kerja
+  const MAX_RADIUS_KM = 5.0;       // Batas jarak
+
+  console.log(`Mulai mencari driver untuk ${orderIds.length} pesanan...`);
+
+  try {
+    // A. Ambil Data Restoran (Koordinat)
+    // Kita ambil dari order pertama saja karena batch pasti dari resto yang sama
+    const firstOrderDoc = await db.collection('daily_orders').doc(orderIds[0]).get();
+    if (!firstOrderDoc.exists) {
+        console.error("Order tidak ditemukan saat mencari driver.");
+        return { success: false, message: "Order not found" };
+    }
+    const orderData = firstOrderDoc.data();
+    const restoId = orderData.restaurantId;
+    
+    // Ambil Koordinat Resto
+    const restoSnap = await db.collection('restaurants').doc(restoId).get();
+    if (!restoSnap.exists) {
+        return { success: false, message: "Resto not found" };
+    }
+    const restoLat = restoSnap.data().latitude || 0;
+    const restoLng = restoSnap.data().longitude || 0;
+
+    // B. Ambil SEMUA Driver Verified
+    const driversSnapshot = await db.collection('drivers').where('status', '==', 'verified').get();
+    let drivers = [];
+    
+    driversSnapshot.forEach(doc => {
+        const d = doc.data();
+        drivers.push({ 
+            id: doc.id, 
+            namaLengkap: d.namaLengkap || 'Driver',
+            lat: d.latitude || 0, 
+            lng: d.longitude || 0,
+            currentLoad: 0 // Nanti dihitung
+        });
+    });
+
+    // C. Hitung Beban Kerja Driver Saat Ini (Real-time)
+    const activeOrdersSnap = await db.collection('daily_orders')
+        .where('status', 'in', ['assigned', 'ready_for_pickup', 'on_delivery'])
+        .get();
+    
+    activeOrdersSnap.forEach(doc => {
+        const data = doc.data();
+        if (data.driverId) {
+            const idx = drivers.findIndex(d => d.id === data.driverId);
+            if (idx !== -1) {
+                drivers[idx].currentLoad += 1;
+            }
+        }
+    });
+
+    let assignedCount = 0;
+    const batch = db.batch();
+
+    // D. Loop setiap Order dan Cari Driver Terbaik
+    for (const orderId of orderIds) {
+      let bestDriver = null;
+      let minDistance = 9999; 
+
+      for (const driver of drivers) {
+        // FILTER 1: Cek Beban (Max 4)
+        if (driver.currentLoad >= MAX_ORDERS_PER_DRIVER) continue;
+
+        // FILTER 2: Hitung Jarak
+        const dist = calculateDistance(driver.lat, driver.lng, restoLat, restoLng);
+        
+        // FILTER 3: Radius Max 5KM & Cari yang Terdekat
+        if (dist <= MAX_RADIUS_KM && dist < minDistance) {
+          minDistance = dist;
+          bestDriver = driver;
+        }
+      }
+
+      if (bestDriver) {
+        // KETEMU! Update Data Order
+        const ref = db.collection('daily_orders').doc(orderId);
+        batch.update(ref, { 
+            status: 'assigned', // Status langsung assigned (sudah dapat driver)
+            driverId: bestDriver.id,
+            driverName: bestDriver.namaLengkap
+        });
+        
+        // Update beban di memori (agar order berikutnya di loop ini tau driver ini nambah tugas)
+        bestDriver.currentLoad += 1;
+        assignedCount++;
+      }
+    }
+
+    // E. Commit perubahan ke Database
+    if (assignedCount > 0) {
+        await batch.commit();
+        console.log(`SUKSES: ${assignedCount} pesanan berhasil dapat driver.`);
+    } else {
+        console.log("GAGAL: Tidak ada driver yang cocok/available saat ini.");
+    }
+    
+    return { success: true, assignedCount };
+
+  } catch (e) {
+      console.error("AUTO-ASSIGN ERROR:", e);
+      return { success: false, error: e.message };
+  }
+}
+
+/**
+ * ============================================================
+ * HELPER 3: GENERATE DAILY ORDERS
+ * Membuat dokumen harian setelah pembayaran lunas
+ * ============================================================
  */
 const generateDailyOrders = async (orderId, orderData) => {
   const batch = db.batch();
   const slots = orderData.items; 
   const userId = orderData.userId;
+  
+  // Array untuk menyimpan ID pesanan yang baru dibuat (agar bisa langsung dicari drivernya)
+  let createdIds = []; 
 
-  // 1. Buat satu dokumen langganan
+  // 1. Simpan dokumen langganan
   const subscriptionRef = db.collection("subscriptions").doc(orderId);
   batch.set(subscriptionRef, {
     ...orderData,
     status: "active",
   });
 
-  // Logika Tanggal
+  // 2. Logika Tanggal (H+1 atau H+2 jika malam)
   const startDate = new Date();
-  startDate.setDate(startDate.getDate() + 1); // Mulai Besok
+  startDate.setDate(startDate.getDate() + 1);
   if (new Date().getHours() > 20) {
-    startDate.setDate(startDate.getDate() + 1); // Lusa jika malam
+    startDate.setDate(startDate.getDate() + 1); 
   }
 
-  // 3. Loop dan buat dokumen pesanan harian
+  // 3. Loop Item & Buat Dokumen
   for (let i = 0; i < slots.length; i++) {
     const slot = slots[i];
     const menu = slot.selectedMenu; 
@@ -81,6 +203,8 @@ const generateDailyOrders = async (orderId, orderData) => {
     deliveryDate.setDate(deliveryDate.getDate() + i);
 
     const dailyOrderId = `${orderId}_day${i + 1}`;
+    createdIds.push(dailyOrderId); // Simpan ID ini
+
     const dailyOrderRef = db.collection("daily_orders").doc(dailyOrderId);
 
     const dailyOrderData = {
@@ -88,49 +212,56 @@ const generateDailyOrders = async (orderId, orderData) => {
       userId: userId,
       day: slot.day, 
       mealTime: slot.mealTime, 
+      
+      // Info Menu
       menuId: menu.menuId,
       namaMenu: menu.namaMenu,
       harga: menu.harga,
       fotoUrl: menu.fotoUrl,
       restaurantId: menu.restaurantId,
+      
+      // Status & Tanggal
       deliveryDate: admin.firestore.Timestamp.fromDate(deliveryDate),
-      status: "confirmed", 
+      status: "confirmed", // Status awal (Belum punya driver)
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
-      shippingCost: 0 // Default, nanti diupdate jika perlu
+      shippingCost: 0 
     };
     
     batch.set(dailyOrderRef, dailyOrderData);
   }
   
   await batch.commit();
-  console.log(`Berhasil generate pesanan untuk ${orderId}`);
+  console.log(`Berhasil generate ${createdIds.length} pesanan.`);
+  
+  // Kembalikan daftar ID agar bisa diproses Auto-Assign
+  return createdIds; 
 };
 
 /**
- * =================================================================
- * ENDPOINT 1: createTransaction (Midtrans)
- * =================================================================
+ * ============================================================
+ * ENDPOINT 1: createTransaction (Dipanggil Flutter)
+ * ============================================================
  */
 app.post("/createTransaction", async (req, res) => {
   try {
-    const finalPrice = req.body.finalPrice;
-    const slots = req.body.slots;
-    const userId = req.body.userId;
-
+    const { finalPrice, slots, userId } = req.body;
+    
+    // Validasi
     if (!userId) throw new Error("User ID tidak ditemukan.");
 
     const orderId = `${userId}-${Date.now()}`;
 
-    const orderPayload = {
+    // Simpan data sementara (Pending)
+    await db.collection("pending_payments").doc(orderId).set({
       userId: userId,
       status: "pending",
       totalPrice: finalPrice,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
       items: slots, 
-    };
-    await db.collection("pending_payments").doc(orderId).set(orderPayload);
+    });
 
-    const parameter = {
+    // Request ke Midtrans
+    const transaction = await snap.createTransaction({
       transaction_details: {
         order_id: orderId,
         gross_amount: finalPrice,
@@ -138,16 +269,14 @@ app.post("/createTransaction", async (req, res) => {
       callbacks: {
         finish: "https://katering-app.com/payment-success",
       },
-    };
-
-    const transaction = await snap.createTransaction(parameter);
-    const paymentUrl = transaction.redirect_url;
-
-    await db.collection("pending_payments").doc(orderId).update({
-      paymentUrl: paymentUrl,
     });
 
-    res.status(200).send({paymentUrl: paymentUrl});
+    // Update URL pembayaran
+    await db.collection("pending_payments").doc(orderId).update({
+      paymentUrl: transaction.redirect_url,
+    });
+
+    res.status(200).send({paymentUrl: transaction.redirect_url});
   } catch (e) {
     console.error(e);
     res.status(500).send({error: e.message});
@@ -155,14 +284,14 @@ app.post("/createTransaction", async (req, res) => {
 });
 
 /**
- * =================================================================
- * ENDPOINT 2: paymentHandler (Webhook Midtrans)
- * =================================================================
+ * ============================================================
+ * ENDPOINT 2: paymentHandler (WEBHOOK MIDTRANS)
+ * ============================================================
  */
 app.post("/paymentHandler", async (req, res) => {
   try {
-    const notificationJson = req.body;
-    const statusResponse = await snap.transaction.notification(notificationJson);
+    const notif = req.body;
+    const statusResponse = await snap.transaction.notification(notif);
     const orderId = statusResponse.order_id;
     const transactionStatus = statusResponse.transaction_status;
     const fraudStatus = statusResponse.fraud_status;
@@ -170,144 +299,62 @@ app.post("/paymentHandler", async (req, res) => {
     const orderRef = db.collection("pending_payments").doc(orderId);
     const orderDoc = await orderRef.get();
 
-    if (!orderDoc.exists) return res.status(404).send("Order tidak ditemukan.");
-    
-    const orderData = orderDoc.data();
+    if (!orderDoc.exists) return res.status(404).send("Order not found");
 
+    // Jika Pembayaran Sukses (Settlement / Capture)
     if (transactionStatus === "capture" || transactionStatus === "settlement") {
       if (fraudStatus === "accept") {
+        
+        // 1. Update Status Pembayaran jadi Paid
         await orderRef.update({ status: "paid", paymentDetails: statusResponse });
-        await generateDailyOrders(orderId, orderData);
+        
+        // 2. GENERATE DAILY ORDERS (Membuat rincian H+1 dst)
+        const orderData = orderDoc.data();
+        const newOrderIds = await generateDailyOrders(orderId, orderData);
+        
+        // 3. [FITUR BARU] AUTO ASSIGN DRIVER!
+        // Langsung cari driver detik ini juga, tanpa menunggu Resto klik tombol.
+        if (newOrderIds.length > 0) {
+            await findAndAssignDriver(newOrderIds);
+        }
       }
     } else if (
       transactionStatus === "cancel" ||
       transactionStatus === "deny" ||
       transactionStatus === "expire"
     ) {
-      await orderRef.update({ status: "failed", paymentDetails: statusResponse });
+      await orderRef.update({ status: "failed" });
     }
 
     res.status(200).send("OK");
   } catch (e) {
-    console.error("Error webhook:", e);
-    res.status(500).send("Error internal.");
+    console.error("Error Webhook:", e);
+    res.status(500).send("Error Internal Server");
   }
 });
 
 /**
- * =================================================================
- * ENDPOINT 3: markReadyAndAutoAssign (UPDATE WEEK 8)  * Logika Baru: Batas 4 Pesanan & Radius 5KM
- * =================================================================
+ * ============================================================
+ * ENDPOINT 3: Manual Retry (markReadyAndAutoAssign)
+ * Opsional: Jika otomatis gagal, Resto bisa klik tombol Manual
+ * ============================================================
  */
 app.post("/markReadyAndAutoAssign", async (req, res) => {
   const { orderIds } = req.body;
   
-  // KONFIGURASI WEEK 8
-  const MAX_ORDERS_PER_DRIVER = 4; // Batas beban kerja
-  const MAX_RADIUS_KM = 5.0;       // Batas jarak
-
-  try {
-    if (!orderIds || orderIds.length === 0) {
-        return res.status(400).json({ error: "Tidak ada Order ID." });
-    }
-
-    // 1. Ambil SEMUA Driver Verified
-    const driversSnapshot = await db.collection('drivers').where('status', '==', 'verified').get();
-    let drivers = [];
-    
-    // Siapkan data driver (lokasi & slot beban kerja)
-    driversSnapshot.forEach(doc => {
-        const d = doc.data();
-        drivers.push({ 
-            id: doc.id, 
-            namaLengkap: d.namaLengkap || 'Driver',
-            lat: d.latitude || 0, 
-            lng: d.longitude || 0,
-            currentLoad: 0 // Akan dihitung di bawah
-        });
-    });
-
-    // 2. Hitung Beban Kerja Driver Saat Ini (Real-time)
-    // Cek pesanan yg sedang 'assigned', 'ready_for_pickup', atau 'on_delivery'
-    const activeOrdersSnap = await db.collection('daily_orders')
-        .where('status', 'in', ['assigned', 'ready_for_pickup', 'on_delivery'])
-        .get();
-    
-    activeOrdersSnap.forEach(doc => {
-        const data = doc.data();
-        if (data.driverId) {
-            const driverIndex = drivers.findIndex(d => d.id === data.driverId);
-            if (driverIndex !== -1) {
-                drivers[driverIndex].currentLoad += 1;
-            }
-        }
-    });
-
-    let assignedCount = 0;
-
-    // 3. Proses Penugasan per Order
-    for (const orderId of orderIds) {
-      const orderRef = db.collection('daily_orders').doc(orderId);
-      const orderDoc = await orderRef.get();
-      
-      if (!orderDoc.exists) continue;
-      const orderData = orderDoc.data();
-      
-      // Ambil lokasi Restoran
-      const restoSnap = await db.collection('restaurants').doc(orderData.restaurantId).get();
-      if (!restoSnap.exists) continue;
-      
-      const restoData = restoSnap.data();
-      const restoLat = restoData.latitude || 0;
-      const restoLng = restoData.longitude || 0;
-
-      // 4. Cari Driver Terbaik (Filter: Beban < 4, Jarak < 5KM, Paling Dekat)
-      let bestDriver = null;
-      let minDistance = 9999; 
-
-      for (const driver of drivers) {
-        // FILTER A: Cek Beban (Jangan kasih ke yang sibuk)
-        if (driver.currentLoad >= MAX_ORDERS_PER_DRIVER) continue;
-
-        // FILTER B: Hitung Jarak
-        const dist = calculateDistance(driver.lat, driver.lng, restoLat, restoLng);
-        
-        // FILTER C: Radius & Minimum
-        if (dist <= MAX_RADIUS_KM && dist < minDistance) {
-          minDistance = dist;
-          bestDriver = driver;
-        }
-      }
-
-      if (bestDriver) {
-        // Update DB
-        await orderRef.update({ 
-            status: 'assigned', // Status awal penugasan
-            driverId: bestDriver.id,
-            driverName: bestDriver.namaLengkap
-        });
-        
-        // Update beban di memori (biar order selanjutnya di loop ini tau dia nambah tugas)
-        bestDriver.currentLoad += 1;
-        assignedCount++;
-      }
-    }
-
-    res.status(200).json({ 
-        success: true, 
-        message: `Berhasil menugaskan ${assignedCount} pesanan.`,
-        assignedCount: assignedCount
-    });
-
-  } catch (error) {
-    console.error("Error Auto Assign:", error);
-    res.status(500).json({ error: error.message });
+  // Panggil fungsi helper yang sama dengan yang di webhook
+  const result = await findAndAssignDriver(orderIds);
+  
+  if (result.success) {
+      res.status(200).json(result);
+  } else {
+      res.status(500).json(result);
   }
 });
 
-// --- ROOT & SERVER ---
+// --- ROOT & PORT ---
 app.get("/", (req, res) => {
-  res.status(200).send("Backend Katering App is running (Week 8 Version)! 🚀");
+  res.status(200).send("Backend Katering App is running (Full Version)!");
 });
 
 const PORT = process.env.PORT || 8080;
