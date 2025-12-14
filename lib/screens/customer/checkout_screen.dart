@@ -135,7 +135,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     }
   }
 
-  // --- LOGIKA ONGKIR BARU (Dynamic Duration) ---
+  // --- LOGIKA ONGKIR BARU (Support 2x Makan) ---
   void _calculateShipping(LatLng userLoc) {
     if (_restoLat == null || _restoLng == null) return;
 
@@ -156,34 +156,44 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       return;
     }
 
-    // 3. Cari Durasi Langganan (Hari Terakhir)
-    // Kita cari angka 'day' paling besar di dalam list slots
+    // 3. Deteksi Durasi & Frekuensi Makan
     int maxDay = 0;
-    for (var slot in widget.slots) {
-      if (slot.day > maxDay) maxDay = slot.day;
+    if (widget.slots.isNotEmpty) {
+      // Cari hari paling besar (misal 30)
+      for (var slot in widget.slots) {
+        if (slot.day > maxDay) maxDay = slot.day;
+      }
+    }
+    
+    // Hitung Frekuensi Makan per Hari (1x atau 2x)
+    // Rumus: Total Slot dibagi Total Hari
+    // Contoh: 14 slot / 7 hari = 2x makan.
+    int mealsPerDay = 1;
+    if (maxDay > 0) {
+      mealsPerDay = (widget.slots.length / maxDay).ceil();
     }
 
-    // 4. Hitung Biaya Dasar (Rp 4.000 per KM untuk 7 hari)
-    // Minimal jarak dihitung 1 KM
+    // 4. Hitung Biaya Dasar Per Trip (Rp 4.000 per KM)
+    // Jarak < 1 KM tetap dihitung 1 KM
     double payableDist = dist < 1.0 ? 1.0 : dist;
-    double baseCost = payableDist * 4000; 
+    double baseCostPerTrip = payableDist * 4000; 
 
-    // 5. Terapkan Multiplier Sesuai Durasi
-    double finalCost = 0;
-
+    // 5. Terapkan Multiplier Durasi (Strategi Diskon Anda)
+    double durationMultiplier = 1.0;
     if (maxDay <= 7) {
-      // Paket 7 Hari (atau kurang) -> Harga Normal
-      finalCost = baseCost * 1.0;
+      durationMultiplier = 1.0;      // 7 Hari = Harga Normal
     } else if (maxDay <= 14) {
-      // Paket 14 Hari -> Dikalikan 1.5
-      finalCost = baseCost * 1.5;
+      durationMultiplier = 1.5;      // 14 Hari = Diskon (Cuma bayar 1.5x)
     } else {
-      // Paket 30 Hari (atau lebih) -> Dikalikan 2
-      finalCost = baseCost * 2.0;
+      durationMultiplier = 2.0;      // 30 Hari = Diskon Besar (Cuma bayar 2x)
     }
 
-    // Pembulatan ke atas (biar rapi tidak ada koma)
-    int fixedCost = finalCost.ceil();
+    // 6. HITUNG TOTAL AKHIR
+    // Rumus: (Biaya Trip x Durasi) x Frekuensi Makan
+    double totalCost = (baseCostPerTrip * durationMultiplier) * mealsPerDay;
+
+    // Pembulatan ke atas
+    int fixedCost = totalCost.ceil();
 
     setState(() {
       _userLocation = userLoc;
@@ -192,8 +202,12 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _errorMsg = null; 
     });
     
-    // Debugging (Opsional, bisa dihapus nanti)
-    print("DEBUG ONGKIR: Jarak=$dist km, Durasi=$maxDay hari, Total Ongkir=Rp $fixedCost");
+    // Debugging untuk cek logika
+    print("DEBUG ONGKIR:");
+    print("- Jarak: ${dist.toStringAsFixed(2)} KM");
+    print("- Durasi: $maxDay Hari (Multiplier: $durationMultiplier)");
+    print("- Frekuensi: $mealsPerDay x Makan/Hari");
+    print("- Total Ongkir: Rp $fixedCost");
   }
 
   Future<void> _processPayment() async {

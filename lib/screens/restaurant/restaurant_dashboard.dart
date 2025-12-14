@@ -1,133 +1,201 @@
 // File: lib/screens/restaurant/restaurant_dashboard.dart
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'menu_management_screen.dart';
-import 'upcoming_orders_screen.dart';
-import 'restaurant_profile_screen.dart'; // <-- IMPORT BARU (Pastikan file ini sudah dibuat)
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// Halaman dashboard utama untuk Restoran.
-class RestaurantDashboard extends StatelessWidget {
+// --- IMPORT LAYAR FITUR LAINNYA ---
+import 'menu_management_screen.dart';       // Kelola Menu
+import 'restaurant_earnings_screen.dart';   // Penghasilan (Commit 3)
+import 'restaurant_profile_screen.dart';    // Profil & Lokasi
+
+// [PERBAIKAN] Menggunakan UpcomingOrdersScreen sesuai file Anda
+import 'upcoming_orders_screen.dart';       
+
+class RestaurantDashboard extends StatefulWidget {
   const RestaurantDashboard({Key? key}) : super(key: key);
 
   @override
+  State<RestaurantDashboard> createState() => _RestaurantDashboardState();
+}
+
+class _RestaurantDashboardState extends State<RestaurantDashboard> {
+  final User? user = FirebaseAuth.instance.currentUser;
+
+  void _logout() async {
+    await FirebaseAuth.instance.signOut();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (user == null) return const Scaffold(body: Center(child: Text("Error: No User")));
+
     return Scaffold(
+      backgroundColor: Colors.grey[100],
       appBar: AppBar(
-        title: const Text('Dasbor Restoran'),
+        title: const Text('Dashboard Restoran'),
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 0,
         actions: [
-          // --- [TOMBOL 1: AKSES CEPAT PROFIL] ---
           IconButton(
-            icon: const Icon(Icons.person),
-            tooltip: 'Profil & Lokasi',
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (context) => const RestaurantProfileScreen()),
-              );
-            },
+            icon: const Icon(Icons.logout, color: Colors.red),
+            onPressed: _logout,
+            tooltip: 'Keluar',
           ),
-          // --- [TOMBOL 2: LOGOUT] ---
-          IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: 'Logout',
-            onPressed: () {
-              FirebaseAuth.instance.signOut();
-            },
-          )
         ],
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16.0),
-        children: [
-          // --- KARTU 1: PESANAN ---
-          _buildDashboardCard(
-            context,
-            icon: Icons.receipt_long,
-            title: 'Pesanan Mendatang',
-            subtitle: 'Lihat pesanan & Auto-Dispatch Driver',
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (context) => const UpcomingOrdersScreen()),
-              );
-            },
-          ),
-          const SizedBox(height: 16),
-          
-          // --- KARTU 2: KELOLA MENU ---
-          _buildDashboardCard(
-            context,
-            icon: Icons.restaurant_menu,
-            title: 'Kelola Menu',
-            subtitle: 'Tambah, edit, atau hapus menu Anda',
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (context) => const MenuManagementScreen()),
-              );
-            },
-          ),
-          const SizedBox(height: 16),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // --- HEADER PROFIL ---
+            StreamBuilder<DocumentSnapshot>(
+              stream: FirebaseFirestore.instance.collection('restaurants').doc(user!.uid).snapshots(),
+              builder: (context, snapshot) {
+                if (!snapshot.hasData) return const SizedBox(); 
+                
+                final data = snapshot.data!.data() as Map<String, dynamic>?;
+                final namaToko = data?['namaToko'] ?? 'Restoran Anda';
+                final lat = data?['latitude'] ?? 0.0;
+                bool isLocationSet = (lat != 0.0);
 
-          // --- KARTU 3: PROFIL & LOKASI (BARU) ---
-          _buildDashboardCard(
-            context,
-            icon: Icons.store_mall_directory, // Ikon Toko/Lokasi
-            title: 'Profil & Lokasi',
-            subtitle: 'Atur titik peta untuk Ongkos Kirim', // Keterangan fungsi
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (context) => const RestaurantProfileScreen()),
-              );
-            },
-          ),
-        ],
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [Colors.blue.shade800, Colors.blue.shade500],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(color: Colors.blue.withOpacity(0.3), blurRadius: 10, offset: const Offset(0, 5))
+                    ],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Halo, $namaToko!',
+                        style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Icon(
+                            isLocationSet ? Icons.check_circle : Icons.warning,
+                            color: isLocationSet ? Colors.lightGreenAccent : Colors.orangeAccent,
+                            size: 16,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            isLocationSet ? 'Lokasi Aktif' : 'Lokasi Belum Diatur!',
+                            style: const TextStyle(color: Colors.white70),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+
+            const SizedBox(height: 24),
+            const Text("Menu Utama", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 16),
+
+            // --- GRID MENU ---
+            GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 2, 
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              children: [
+                // 1. Pesanan Masuk (UPCOMING)
+                _buildMenuCard(
+                  title: 'Pesanan Masuk',
+                  icon: Icons.receipt_long,
+                  color: Colors.orange,
+                  onTap: () {
+                    // [PERBAIKAN] Navigasi ke UpcomingOrdersScreen
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const UpcomingOrdersScreen()));
+                  },
+                ),
+                
+                // 2. Kelola Menu
+                _buildMenuCard(
+                  title: 'Kelola Menu',
+                  icon: Icons.restaurant_menu,
+                  color: Colors.blue,
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const MenuManagementScreen()));
+                  },
+                ),
+
+                // 3. Penghasilan (Fitur Baru)
+                _buildMenuCard(
+                  title: 'Penghasilan',
+                  icon: Icons.monetization_on,
+                  color: Colors.green,
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const RestaurantEarningsScreen()));
+                  },
+                ),
+
+                // 4. Profil & Lokasi
+                _buildMenuCard(
+                  title: 'Profil & Lokasi',
+                  icon: Icons.store,
+                  color: Colors.purple,
+                  onTap: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const RestaurantProfileScreen()));
+                  },
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  /// Widget helper untuk membuat card menu di dashboard.
-  Widget _buildDashboardCard(
-    BuildContext context, {
-    required IconData icon,
+  Widget _buildMenuCard({
     required String title,
-    required String subtitle,
+    required IconData icon,
+    required Color color,
     required VoidCallback onTap,
   }) {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: InkWell( // Pakai InkWell biar ada efek pencet
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16.0, horizontal: 20.0),
-          child: Row(
-            children: [
-              Icon(
-                icon,
-                size: 40,
-                color: Theme.of(context).primaryColor,
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 4))
+          ],
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.1),
+                shape: BoxShape.circle,
               ),
-              const SizedBox(width: 20),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: Theme.of(context).textTheme.titleLarge),
-                    const SizedBox(height: 4),
-                    Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: Colors.grey),
-            ],
-          ),
+              child: Icon(icon, size: 32, color: color),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ],
         ),
       ),
     );

@@ -5,7 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:intl/intl.dart';
 import '../../models/daily_order_model.dart';
 import '../../services/restaurant_service.dart';
-import 'restaurant_profile_screen.dart'; // Import halaman profil baru
+import 'restaurant_profile_screen.dart'; // Import halaman profil
 
 class UpcomingOrdersScreen extends StatefulWidget {
   const UpcomingOrdersScreen({Key? key}) : super(key: key);
@@ -60,7 +60,9 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
   Future<void> _handleMarkAsReady(List<DailyOrderModel> batchOrders) async {
     setState(() => _isLoading = true);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
-    final orderIds = batchOrders.map((order) => order.id).toList();
+    
+    // [PERBAIKAN DI SINI]: Menggunakan .orderId bukan .id
+    final orderIds = batchOrders.map((order) => order.orderId).toList();
 
     try {
       // Panggil fungsi AUTO-ASSIGN
@@ -92,7 +94,6 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
       appBar: AppBar(
         title: const Text('Pesanan Mendatang (10 Hari)'),
         actions: [
-          // --- TOMBOL PROFIL BARU ---
           IconButton(
             icon: const Icon(Icons.person),
             tooltip: 'Profil Restoran & Lokasi',
@@ -114,8 +115,16 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
                 return const Center(child: CircularProgressIndicator());
               }
               if (snapshot.hasError) {
-                return const Center(
-                  child: Text('Error memuat pesanan. (Pastikan Index sudah dibuat)'),
+                return Center(
+                  // Pesan error lebih informatif
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Text(
+                      'Error: ${snapshot.error}.\n\nTips: Cek Firestore Index di Console jika baru pertama kali dijalankan.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  ),
                 );
               }
               if (!snapshot.hasData || snapshot.data!.isEmpty) {
@@ -145,6 +154,7 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
               final groupKeys = groupedOrders.keys.toList();
 
               return ListView.builder(
+                padding: const EdgeInsets.only(bottom: 20),
                 itemCount: groupKeys.length,
                 itemBuilder: (context, index) {
                   final key = groupKeys[index];
@@ -176,15 +186,20 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
     final bool isToday = deliveryDay.isAtSameMomentAs(today);
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       elevation: 3,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           ListTile(
-            title: Text('$tglKirim - $mealTime', style: Theme.of(context).textTheme.titleLarge),
-            subtitle: Text('Total ${batchOrders.length} menu untuk disiapkan.'),
+            title: Text('$tglKirim - $mealTime', style: const TextStyle(fontWeight: FontWeight.bold)),
+            subtitle: Text('Total ${batchOrders.length} porsi'),
             tileColor: (isToday ? Colors.green[50] : Colors.grey[100]),
+            trailing: isToday 
+              ? const Chip(label: Text("HARI INI", style: TextStyle(color: Colors.white, fontSize: 10)), backgroundColor: Colors.green)
+              : null,
+            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(12))),
           ),
           
           Padding(
@@ -196,20 +211,29 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
                   child: Row(
                     children: [
                       ClipRRect(
-                        borderRadius: BorderRadius.circular(4.0),
+                        borderRadius: BorderRadius.circular(8.0),
                         child: Image.network(
                           order.fotoUrl,
-                          width: 40,
-                          height: 40,
+                          width: 50,
+                          height: 50,
                           fit: BoxFit.cover,
-                          errorBuilder: (ctx, err, st) => const Icon(Icons.broken_image),
+                          errorBuilder: (ctx, err, st) => Container(
+                            width: 50, height: 50, color: Colors.grey[300], 
+                            child: const Icon(Icons.fastfood, color: Colors.grey)
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: Text(
-                          order.namaMenu,
-                          style: Theme.of(context).textTheme.bodyLarge,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              order.namaMenu,
+                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            ),
+                            Text("ID Order: ...${order.orderId.substring(order.orderId.length - 4)}", style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                          ],
                         ),
                       ),
                     ],
@@ -223,14 +247,18 @@ class _UpcomingOrdersScreenState extends State<UpcomingOrdersScreen> {
             padding: const EdgeInsets.all(16.0),
             child: SizedBox(
               width: double.infinity,
+              height: 45,
               child: ElevatedButton(
+                // Tombol hanya aktif jika pesanan untuk HARI INI
                 onPressed: (isToday && !_isLoading) ? () {
                   _handleMarkAsReady(batchOrders);
                 } : null,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: isToday ? Theme.of(context).primaryColor : Colors.grey,
+                  backgroundColor: isToday ? Theme.of(context).primaryColor : Colors.grey[300],
+                  foregroundColor: isToday ? Colors.white : Colors.grey[600],
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                 ),
-                child: const Text('Tandai Semua Siap Diambil'),
+                child: Text(isToday ? 'TANDAI SIAP & PANGGIL DRIVER' : 'Belum Waktunya'),
               ),
             ),
           ),
